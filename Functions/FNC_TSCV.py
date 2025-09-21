@@ -8,29 +8,29 @@ import statsmodels.api as sm
 import warnings
 warnings.filterwarnings('ignore')
 
-def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
+def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=10):
     """
     Modelo de validação cruzada para séries temporais com métricas completas
     """
     
     print(f"=== MODELO DE VALIDAÇÃO CRUZADA - SKU {sku} ===\n")
     
-    # ✅ VERIFICAR se há múltiplas variáveis
+    #  VERIFICAR se há múltiplas variáveis
     
-    X_cols = ['Log_Preco','Quarta-feira', 'Segunda-feira', 'Terça-feira']
+    X_cols = list(X_cols)
     
     # Se só tiver uma variável, garantir que seja 2D
     if len(X_cols) == 1:
-        print("⚠️  Apenas uma variável preditora - ajustando dimensões...")
+        print("  Apenas uma variável preditora - ajustando dimensões...")
     
-    y_col = 'Log_Demanda'
+    y_col = var_dpd
     
     # Preparar dados 
     X = df[X_cols].astype(float)
     y = df[y_col].astype(float).values   
     dates = df.index
     
-    # ✅ GARANTIR que X seja 2D mesmo com uma variável
+    #  GARANTIR que X seja 2D mesmo com uma variável
     if len(X_cols) == 1:
         X = X.values.reshape(-1, 1)  # Transforma 1D em 2D
     else:
@@ -46,7 +46,7 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
         'erro_medio': [], 'predictions': [], 'actuals': []
     }
     
-    print("🧪 Executando validação cruzada temporal...")
+    print(" Executando validação cruzada temporal...")
     print("=" * 60)
     
     for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
@@ -55,7 +55,7 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
         y_train, y_test = y[train_idx], y[test_idx]
         dates_test = dates[test_idx]
         
-        # ✅ Verificar dimensões
+        #  Verificar dimensões
         if X_train.ndim == 1:
             X_train = X_train.reshape(-1, 1)
             X_test = X_test.reshape(-1, 1)
@@ -91,7 +91,7 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
             model_sm = sm.OLS(y_train_float, X_with_const).fit()
             p_values = model_sm.pvalues[1:] 
         except Exception as e:
-            print(f"⚠️  Erro no teste de significância (fold {fold+1}): {e}")
+            print(f"  Erro no teste de significância (fold {fold+1}): {e}")
             p_values = np.ones(len(X_cols))
         
         # Armazenar resultados
@@ -106,16 +106,16 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
         resultados['predictions'].extend(y_pred)
         resultados['actuals'].extend(y_test)
         
-        print(f"📊 Fold {fold + 1}:")
+        print(f" Fold {fold + 1}:")
         print(f"   Período teste: {dates_test[0].date()} a {dates_test[-1].date()}")
         print(f"   RMSE: {rmse:.4f}, WAPE: {wape:.2f}%, R²: {r2:.4f}")
     
     print("\n" + "=" * 60)
-    print("📈 RESULTADOS FINAIS DO MODELO")
+    print(" RESULTADOS FINAIS DO MODELO")
     print("=" * 60)
     
     # Métricas médias
-    print(f"📍 Métricas Médias nos {n_splits} folds:")
+    print(f" Métricas Médias nos {n_splits} folds:")
     print(f"   RMSE: {np.mean(resultados['rmse']):.4f} (±{np.std(resultados['rmse']):.4f})")
     print(f"   WAPE: {np.mean(resultados['wape']):.2f}% (±{np.std(resultados['wape']):.2f}%)")
     print(f"   TWAPE: {np.mean(resultados['twape']):.2f}% (±{np.std(resultados['twape']):.2f}%)")
@@ -127,21 +127,21 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
     intercepto_medio = np.mean(resultados['interceptos'])
     p_valores_medio = np.mean(resultados['p_valores'], axis=0)
     
-    print(f"\n📍 Coeficientes do Modelo (média):")
+    print(f"\n Coeficientes do Modelo (média):")
     print(f"   Intercepto: {intercepto_medio:.6f}")
     
-    # ✅ Corrigir para caso de coeficiente único
+    #  Corrigir para caso de coeficiente único
     if len(X_cols) == 1:
-        print(f"   {X_cols[0]}: {coef_medio:.6f} ✅(p-valor: {p_valores_medio:.4f})")
+        print(f"   {X_cols[0]}: {coef_medio:.6f} (p-valor: {p_valores_medio:.4f})")
     else:
         for i, col in enumerate(X_cols):
-            significativo = "✅" if p_valores_medio[i] < 0.05 else "⚠️ "
+            significativo = "Ok! " if p_valores_medio[i] < 0.05 else "Atenção! "
             print(f"   {col}: {coef_medio[i]:.6f} {significativo}(p-valor: {p_valores_medio[i]:.4f})")
     
     # Análise de resíduos
     residuos = np.array(resultados['actuals']) - np.array(resultados['predictions'])
     
-    print(f"\n📊 Análise de Resíduos:")
+    print(f"\n Análise de Resíduos:")
     print(f"   Média dos resíduos: {np.mean(residuos):.6f}")
     print(f"   Std dos resíduos: {np.std(residuos):.6f}")
     print(f"   Resíduos dentro de ±2σ: {np.mean((residuos >= -2*np.std(residuos)) & (residuos <= 2*np.std(residuos))) * 100:.1f}%")
@@ -152,13 +152,13 @@ def modelo_validacao_cruzada_series_temporais(df, sku, n_splits=10):
         y_float = y.astype(float)
         model_full = sm.OLS(y_float, X_full).fit()
         
-        print(f"\n🎯 Significância Estatística do Modelo:")
+        print(f"\n Significância Estatística do Modelo:")
         print(f"   F-statistic: {model_full.fvalue:.2f}")
         print(f"   Prob (F-statistic): {model_full.f_pvalue:.6f}")
         print(f"   AIC: {model_full.aic:.2f}")
         print(f"   BIC: {model_full.bic:.2f}")
     except Exception as e:
-        print(f"⚠️  Erro na significância geral do modelo: {e}")
+        print(f"  Erro na significância geral do modelo: {e}")
         model_full = None
     
     # Retornar resultados detalhados
@@ -194,7 +194,7 @@ def converter_para_escala_original(resultados, df):
     wape_orig = np.sum(np.abs(actuals_orig - predictions_orig)) / np.sum(actuals_orig) * 100
     r2_orig = r2_score(actuals_orig, predictions_orig)
     
-    print(f"\n📊 Métricas em Escala Original:")
+    print(f"\n Métricas em Escala Original:")
     print(f"   RMSE: {rmse_orig:.2f}")
     print(f"   WAPE: {wape_orig:.2f}%")
     print(f"   R²: {r2_orig:.4f}")
@@ -245,6 +245,6 @@ def encontrar_melhor_alpha(df, X_cols, y_col, alphas=[0.001, 0.01, 0.1, 1.0, 10.
     
     # Encontrar melhor alpha
     melhor_alpha = min(resultados_alpha, key=resultados_alpha.get)
-    print(f"\n🎯 MELHOR ALPHA: {melhor_alpha} (RMSE: {resultados_alpha[melhor_alpha]:.4f})")
+    print(f"\n MELHOR ALPHA: {melhor_alpha} (RMSE: {resultados_alpha[melhor_alpha]:.4f})")
     
     return melhor_alpha, resultados_alpha

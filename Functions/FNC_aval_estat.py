@@ -30,7 +30,7 @@ def avaliar_dados_series_temporais(df, sku):
     print("1. ESTATÍSTICAS DESCRITIVAS:")
     print("=" * 50)
     
-    numeric_cols = ['Preco', 'Demanda', 'Log_Preco', 'Log_Demanda', 
+    numeric_cols = ['Preco', 'Demanda', 'Log_Preco','Log_Preco_Listado', 'Log_Demanda', 
                    'Log_Preco_7D', 'Log_Demanda_7D']
     
     desc_stats = df[numeric_cols].describe()
@@ -51,7 +51,7 @@ def avaliar_dados_series_temporais(df, sku):
     print("Se p-valor > 0.05, a série NÃO é estacionária\n")
     
     resultados_estacionariedade = {}
-    for col in ['Log_Demanda', 'Log_Preco', 'Demanda', 'Preco']:
+    for col in ['Log_Demanda', 'Demanda']:
         result = adfuller(df[col].dropna())
         resultados_estacionariedade[col] = result[1] < 0.05
         
@@ -180,16 +180,16 @@ def avaliar_dados_series_temporais(df, sku):
     nao_estacionarias = [col for col, est in resultados_estacionariedade.items() if not est]
     
     if nao_estacionarias:
-        print("⚠️  VARIÁVEIS NÃO ESTACIONÁRIAS (precisam de transformação):")
+        print(" VARIÁVEIS NÃO ESTACIONÁRIAS (precisam de transformação):")
         for var in nao_estacionarias:
             print(f"   - {var}")
-        print("\n✅ RECOMENDAÇÃO: Use diferenciação (df.diff()) ou transformações adicionais")
+        print("\n RECOMENDAÇÃO: Use diferenciação (df.diff()) ou transformações adicionais")
     else:
-        print("✅ TODAS as variáveis são estacionárias - OK para modelagem")
+        print("TODAS as variáveis são estacionárias - OK para modelagem")
     
     # Verificar correlação
     correlacao = df['Log_Preco'].corr(df['Log_Demanda'])
-    print(f"\n📊 Correlação Log_Preco x Log_Demanda: {correlacao:.4f}")
+    print(f"\n Correlação Log_Preco x Log_Demanda: {correlacao:.4f}")
     
     if abs(correlacao) < 0.2:
         print("   → Correlação MUITO fraca - preço pode não ser bom preditor")
@@ -203,7 +203,7 @@ def avaliar_dados_series_temporais(df, sku):
         print("   → Correlação MUITO forte - excelente preditor")
     
     # Recomendações finais
-    print("\n🎯 RECOMENDAÇÕES FINAIS PARA VALIDAÇÃO CRUZADA:")
+    print("\n RECOMENDAÇÕES FINAIS PARA VALIDAÇÃO CRUZADA:")
     print("=" * 60)
     
     if nao_estacionarias:
@@ -217,6 +217,6 @@ def avaliar_dados_series_temporais(df, sku):
     print("5. Monitore overfitting comparando performance treino/teste")
     print("6. Considere modelos SARIMA para capturar sazonalidade")
     
-    print("\n✅ Análise concluída - Dados prontos para modelagem!")
+    print("\n Análise concluída - Dados prontos para modelagem!")
     
     return mensal_agg, resultados_estacionariedade

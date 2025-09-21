@@ -6,18 +6,17 @@ class PredictorVendas:
     def __init__(self, resultados_modelo):
         """
         Inicializa o predictor com os resultados do modelo treinado
-        
-        Parameters:
-        resultados_modelo: dict com 'intercepto', 'coeficientes' e 'feature_names'
         """
         self.intercepto = resultados_modelo['intercepto']
         self.coeficientes = resultados_modelo['coeficientes']
         
-        # Se feature_names não estiver definido, usa padrão do seu modelo
-        self.feature_names = resultados_modelo.get('feature_names', 
-                                                  ['Log_Preco', 'Quarta-feira', 'Segunda-feira', 'Terça-feira'])
+        if 'feature_names' in resultados_modelo:
+            self.feature_names = resultados_modelo['feature_names']
+        else:
+            self.feature_names = ['Log_Preco', 'Black_Friday', 'promocionado_25', 
+                                'Quarta-feira', 'Terça-feira']
         
-        print("✅ Predictor inicializado com sucesso!")
+        print("Predictor inicializado com sucesso!")
         print(f"   Intercepto: {self.intercepto:.6f}")
         for i, feature in enumerate(self.feature_names):
             print(f"   {feature}: {self.coeficientes[i]:.6f}")
@@ -117,34 +116,3 @@ def prever_planilha(resultados_modelo, caminho_planilha):
     
     # Fazer previsões
     return predictor.prever_demanda(df_input)
-
-def prever_proximos_dias(resultados_modelo, preco_atual, dias=7, data_inicio=None, sku='7172'):
-    """
-    Previsão para os próximos dias assumindo preço constante
-    
-    Parameters:
-    resultados_modelo: dict do modelo treinado
-    preco_atual: preço a ser usado para todos os dias
-    dias: número de dias para prever
-    data_inicio: data de início (default: hoje)
-    sku: código do SKU
-    
-    Returns:
-    DataFrame com previsões
-    """
-    if data_inicio is None:
-        data_inicio = datetime.now().date()
-    
-    # Criar predictor
-    predictor = criar_predictor(resultados_modelo)
-    
-    # Criar DataFrame com datas futuras
-    datas = [data_inicio + timedelta(days=i) for i in range(dias)]
-    
-    df_futuro = pd.DataFrame({
-        'Data': datas,
-        'Preco': preco_atual,
-        'SKU': sku
-    })
-    
-    return predictor.prever_demanda(df_futuro)
