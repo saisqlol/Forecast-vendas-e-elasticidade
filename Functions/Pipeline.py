@@ -31,7 +31,7 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
     DataFrame consolidado com resultados de todos os SKUs
     """
     
-    print("🚀 INICIANDO PIPELINE COMPLETA PARA TODOS OS SKUs")
+    print(" INICIANDO PIPELINE COMPLETA PARA TODOS OS SKUs")
     print("=" * 60)
     print(f"SKUs encontrados: {len(df_produtos)}")
     print(f"SKUs: {df_produtos['ID_Sku'].tolist()}")
@@ -47,16 +47,16 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
     for idx, row in df_produtos.iterrows():
         sku = str(row['ID_Sku']).strip()
         
-        print(f"\n🔍 Processando SKU {sku} ({idx + 1}/{len(df_produtos)})...")
+        print(f"\n Processando SKU {sku} ({idx + 1}/{len(df_produtos)})...")
         print("-" * 40)
         
         try:
             # 1. Criar base de vendas para o SKU
-            print("📊 Criando base de vendas...")
+            print(" Criando base de vendas...")
             Venda = Base_venda(sku)
             
             if Venda is None or len(Venda) == 0:
-                print(f"⚠️  SKU {sku} sem dados de venda. Pulando...")
+                print(f"  SKU {sku} sem dados de venda. Pulando...")
                 skus_com_erro += 1
                 continue
             
@@ -64,11 +64,13 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
             print(f"   Período: {Venda.index.min().date()} a {Venda.index.max().date()}")
             
             # 2. Executar modelo de validação cruzada
-            print("🧠 Executando modelo de validação cruzada...")
-            resultados_modelo = modelo_validacao_cruzada_series_temporais(Venda, sku, n_splits=n_splits)
+            print(" Executando modelo de validação cruzada...")
+            resultados_modelo = modelo_validacao_cruzada_series_temporais(
+                Venda, sku,'Log_Preco', 'Black_Friday', 'promocionado_25','Quarta-feira', 'Terça-feira',var_dpd = 'Log_Demanda',n_splits=n_splits
+                )
             
             # 3. Fazer previsões para o SKU
-            print("🔮 Fazendo previsões...")
+            print(" Fazendo previsões...")
             resultado_previsao = prever_planilha(resultados_modelo, caminho_planilha_precos)
             
             # Adicionar SKU às previsões
@@ -101,10 +103,10 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
             previsoes_consolidadas.append(resultado_previsao)
             
             skus_processados += 1
-            print(f"✅ SKU {sku} processado com sucesso!")
+            print(f" SKU {sku} processado com sucesso!")
             
         except Exception as e:
-            print(f"❌ ERRO no SKU {sku}: {str(e)}")
+            print(f" ERRO no SKU {sku}: {str(e)}")
             print(traceback.format_exc())
             
             # Registrar erro
@@ -130,7 +132,7 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
             continue
     
     # 5. Consolidar todos os resultados
-    print(f"\n📈 CONSOLIDANDO RESULTADOS...")
+    print(f"\n CONSOLIDANDO RESULTADOS...")
     print("=" * 60)
     
     df_resultados = pd.DataFrame(resultados_consolidados)
@@ -141,7 +143,7 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
         df_previsoes = pd.DataFrame()
     
     # 6. Salvar resultados
-    print("💾 Salvando arquivos...")
+    print(" Salvando arquivos...")
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
@@ -155,13 +157,13 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
         df_previsoes.to_excel(caminho_previsoes, index=False)
     
     print("=" * 60)
-    print("🎯 PIPELINE CONCLUÍDA!")
-    print(f"✅ SKUs processados com sucesso: {skus_processados}")
-    print(f"❌ SKUs com erro: {skus_com_erro}")
-    print(f"📊 Resultados salvos em: {caminho_resultados}")
+    print(" PIPELINE CONCLUÍDA!")
+    print(f" SKUs processados com sucesso: {skus_processados}")
+    print(f" SKUs com erro: {skus_com_erro}")
+    print(f" Resultados salvos em: {caminho_resultados}")
     
     if not df_previsoes.empty:
-        print(f"🔮 Previsões salvas em: {caminho_previsoes}")
+        print(f" Previsões salvas em: {caminho_previsoes}")
     
     return df_resultados, df_previsoes
 
