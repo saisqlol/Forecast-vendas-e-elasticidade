@@ -24,6 +24,36 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         print("  Apenas uma variável preditora - ajustando dimensões...")
     
     y_col = var_dpd
+
+    # VERIFICAR E LIMPAR DADOS ANTES DE PROCESSAR
+    print("Verificando qualidade dos dados...")
+    
+    # Verificar valores infinitos ou muito grandes
+    y = df[y_col].astype(float).values
+    X = df[X_cols].astype(float)
+    
+    # Identificar problemas em y
+    problemas_y = np.isinf(y) | np.isnan(y) | (np.abs(y) > 1e10)
+    if problemas_y.any():
+        print(f"Encontrados {problemas_y.sum()} valores problemáticos em {y_col}")
+        print(f"Valores únicos problemáticos: {np.unique(y[problemas_y])}")
+        
+        # Remover ou corrigir linhas problemáticas
+        indices_problema = np.where(problemas_y)[0]
+        indices_validos = np.where(~problemas_y)[0]
+        
+        if len(indices_validos) > len(X_cols) * 2:  # Mínimo para modelagem
+            print(f"   Removendo {len(indices_problema)} linhas problemáticas")
+            y = y[indices_validos]
+            X = X.iloc[indices_validos]
+            dates = df.index[indices_validos]
+        else:
+            print(f"Dados insuficientes após limpeza. Usando fallback.")
+            # Fallback: substituir por valores próximos
+            from scipy import stats
+            y[problemas_y] = np.nanmedian(y[~problemas_y])
+
+
     
     # Preparar dados 
     X = df[X_cols].astype(float)

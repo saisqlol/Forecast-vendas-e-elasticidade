@@ -30,7 +30,7 @@ def avaliar_dados_series_temporais(df, sku):
     print("1. ESTATÍSTICAS DESCRITIVAS:")
     print("=" * 50)
     
-    numeric_cols = ['Preco', 'Demanda', 'Log_Preco','Log_Preco_Listado', 'Log_Demanda', 
+    numeric_cols = ['Preco', 'Demanda', 'Log_Preco', 'Log_Demanda', 
                    'Log_Preco_7D', 'Log_Demanda_7D']
     
     desc_stats = df[numeric_cols].describe()

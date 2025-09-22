@@ -59,6 +59,11 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
                 print(f"  SKU {sku} sem dados de venda. Pulando...")
                 skus_com_erro += 1
                 continue
+
+            if len(Venda) < 30:  # Mínimo de 30 dias de dados
+                print(f"SKU {sku} tem apenas {len(Venda)} registros (mínimo: 30). Pulando...")
+                skus_com_erro += 1
+                continue
             
             print(f"   Registros encontrados: {len(Venda)}")
             print(f"   Período: {Venda.index.min().date()} a {Venda.index.max().date()}")
