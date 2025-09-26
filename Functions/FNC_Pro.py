@@ -101,5 +101,11 @@ def Base_venda(sku):
     # Coluna promocionado_50 (desconto >= 50%)
     df['promocionado_50'] = (df['Desconto_Percentual'] >= 50).astype(int)
     df = df.drop(columns=['Dia_Semana','Med_Preco_7_Dia','Med_Demanda_7_Dia','Desconto_Percentual'])
+
+    # Se mais de 50% dos dados da coluna Demanda for igual a 0, filtra o df
+    if not df.empty and (df['Demanda'] == 0).sum() / len(df) > 0.5:
+        print(f"SKU {sku}: Mais de 50% da demanda é 0. Filtrando para manter apenas dias com vendas.")
+        df = df[df['Demanda'] != 0]
+        
     return df
 
