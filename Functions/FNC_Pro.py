@@ -65,6 +65,8 @@ def Base_venda(sku):
     if condicao_final.any():
         print(f"Removendo {condicao_final.sum()} valores ainda problemáticos")
         df = df[~condicao_final]
+    
+    df['Ano_Mes'] = df['Data'].dt.strftime('%Y-%m')
     df['Dia_Semana'] = df['Data'].dt.day_name(locale='pt_BR')
     # Coluna Black Friday (entre 28 e 30 de novembro)
     df['Black_Friday'] = ((df['Data'].dt.month == 11) & 

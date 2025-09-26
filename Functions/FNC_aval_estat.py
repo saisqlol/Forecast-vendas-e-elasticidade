@@ -91,68 +91,83 @@ def avaliar_dados_series_temporais(df, sku):
     print("=" * 50)
     
     plt.style.use('seaborn-v0_8')
-    fig = plt.figure(figsize=(20, 20))
+    fig = plt.figure(figsize=(20, 25))
     
     # 6.1 Série temporal original com média móvel
-    plt.subplot(3, 2, 1)
+    plt.subplot(4, 2, 1)
     plt.plot(df.index, df['Preco'], 'b-', label='Preço', alpha=0.5)
     plt.plot(df.index, df['Preco'].rolling(7).mean(), 'darkblue', label='MM7 Preço', linewidth=2)
     plt.title('Série Temporal - Preço (com média móvel 7 dias)')
-    plt.xlabel('Data')
+    plt.xlabel('Ano-Mês')
     plt.ylabel('Preço')
     plt.legend()
     plt.xticks(rotation=45)
     plt.grid(True, alpha=0.3)
     
-    plt.subplot(3, 2, 2)
+    plt.subplot(4, 2, 2)
     plt.plot(df.index, df['Demanda'], 'r-', label='Demanda', alpha=0.5)
     plt.plot(df.index, df['Demanda'].rolling(7).mean(), 'darkred', label='MM7 Demanda', linewidth=2)
     plt.title('Série Temporal - Demanda (com média móvel 7 dias)')
-    plt.xlabel('Data')
+    plt.xlabel('Ano-Mês')
     plt.ylabel('Demanda')
     plt.legend()
     plt.xticks(rotation=45)
     plt.grid(True, alpha=0.3)
     
-    # 6.2 Análise de sazonalidade mensal
-    plt.subplot(3, 2, 3)
+    # 6.2 Análise de sazonalidade por Ano-Mês
+    plt.subplot(4, 2, 3)
+    plt.bar(mensal_agg['AnoMes'], mensal_agg['Demanda'], alpha=0.8, color='teal', edgecolor='black')
+    plt.title('Demanda Mensal ao Longo do Tempo')
+    plt.xlabel('Ano-Mês')
+    plt.ylabel('Demanda Total Mensal')
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+
+    # 6.3 Análise de sazonalidade mensal
+    plt.subplot(4, 2, 4)
     meses = range(1, 13)
     demanda_mensal = [mensal_agg[mensal_agg['AnoMes'].str.endswith(f'-{m:02d}')]['Demanda'].mean() 
                      for m in meses]
     plt.bar(meses, demanda_mensal, alpha=0.7, color='coral', edgecolor='black')
-    plt.title('Demanda Média por Mês (Sazonalidade)')
+    plt.title('Demanda Média por Mês do Ano (Sazonalidade)')
     plt.xlabel('Mês')
     plt.ylabel('Demanda Média')
+    plt.xticks(meses)
     plt.grid(True, alpha=0.3)
     
-    # 6.3 Scatter plot - Relação Preço x Demanda
-    plt.subplot(3, 2, 4)
-    plt.scatter(df['Log_Preco'], df['Log_Demanda'], alpha=0.6, color='green')
-    plt.xlabel('Log Preço')
-    plt.ylabel('Log Demanda')
-    plt.title('Relação Log Preço vs Log Demanda')
+    # 6.4 Top 10 dias de maior demanda
+    plt.subplot(4, 2, 5)
+    top_10_demanda = df.nlargest(10, 'Demanda')
+    plt.bar(top_10_demanda.index.strftime('%Y-%m-%d'), top_10_demanda['Demanda'], color='purple', alpha=0.8)
+    plt.title('Top 10 Dias com Maior Demanda')
+    plt.xlabel('Data')
+    plt.ylabel('Demanda')
+    plt.xticks(rotation=45)
     plt.grid(True, alpha=0.3)
     
-    # 6.4 Autocorrelação da demanda
-    plt.subplot(3, 2, 5)
+    # 6.5 Top 3 preços mais praticados
+    plt.subplot(4, 2, 6)
+    top_prices = df['Preco'].value_counts().nlargest(3)
+    sns.barplot(x=top_prices.index, y=top_prices.values, palette='viridis', order=top_prices.index)
+    plt.title('Top 3 Preços Mais Frequentes')
+    plt.xlabel('Preço')
+    plt.ylabel('Contagem de Dias')
+    plt.grid(True, alpha=0.3)
+
+    # 6.6 Autocorrelação da demanda
+    plt.subplot(4, 2, 7)
     plot_acf(df['Log_Demanda'].dropna(), lags=30, ax=plt.gca())
-    plt.title('Autocorrelação - Log Demanda')
+    plt.title('Autocorrelação (ACF) - Log Demanda')
     plt.grid(True, alpha=0.3)
     
-    # 6.5 Distribuição dos dados
-    plt.subplot(3, 2, 6)
-    plt.hist(df['Log_Demanda'].dropna(), bins=30, alpha=0.7, color='lightblue', 
-             edgecolor='black', density=True, label='Log Demanda')
-    plt.hist(df['Log_Preco'].dropna(), bins=30, alpha=0.7, color='lightgreen', 
-             edgecolor='black', density=True, label='Log Preço')
-    plt.title('Distribuição das Variáveis em Escala Log')
-    plt.xlabel('Valor em Log')
-    plt.ylabel('Densidade')
-    plt.legend()
+    # 6.7 Autocorrelação Parcial da demanda
+    plt.subplot(4, 2, 8)
+    plot_pacf(df['Log_Demanda'].dropna(), lags=30, ax=plt.gca())
+    plt.title('Autocorrelação Parcial (PACF) - Log Demanda')
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f'avaliacao_sku_{sku}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'../Graficos/avaliacao_sku_{sku}.png', dpi=300, bbox_inches='tight')
     plt.show()
     
     # 7. Análise de sazonalidade por dia da semana
@@ -163,14 +178,17 @@ def avaliar_dados_series_temporais(df, sku):
                   'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo']
     
     demanda_por_dia = {}
-    for i, dia in enumerate(dias_semana, 1):
-        if f'Dia_{i}' in df.columns:
-            demanda_por_dia[dia] = df[df[f'Dia_{i}'] == 1]['Demanda'].mean()
+    for dia in dias_semana:
+        if dia in df.columns:
+            demanda_por_dia[dia] = df[df[dia] == 1]['Demanda'].mean()
     
     if demanda_por_dia:
         print("Demanda média por dia da semana:")
-        for dia, media in demanda_por_dia.items():
-            print(f"  {dia}: {media:.2f}")
+        for dia in dias_semana:
+            if dia in demanda_por_dia:
+                print(f"  {dia}: {demanda_por_dia[dia]:.2f}")
+    else:
+        print("  Não foram encontradas colunas de dias da semana para análise.")
     
     # 8. Resumo da avaliação
     print("\n8. RESUMO E RECOMENDAÇÕES PARA MODELAGEM:")
@@ -220,3 +238,62 @@ def avaliar_dados_series_temporais(df, sku):
     print("\n Análise concluída - Dados prontos para modelagem!")
     
     return mensal_agg, resultados_estacionariedade
+
+def plotar_comparacao_previsoes(df_previsoes, df_venda, sku):
+    """
+    Cria gráficos comparando a demanda real com as previsões dos modelos.
+
+    Args:
+        df_previsoes (pd.DataFrame): DataFrame com as previsões dos modelos.
+        df_venda (pd.DataFrame): DataFrame com os dados históricos de vendas.
+        sku (str): O SKU do produto para usar nos títulos e nome do arquivo.
+    """
+    print(f"--- GERANDO GRÁFICOS DE COMPARAÇÃO DE PREVISÕES PARA SKU {sku} ---")
+    
+    # Garantir que a coluna de data seja do tipo datetime em ambos os DataFrames
+    df_previsoes['Data'] = pd.to_datetime(df_previsoes['Data'])
+    
+    # Definir a data como índice para facilitar a junção e plotagem
+    df_previsoes_idx = df_previsoes.set_index('Data')
+    
+    # Filtrar o DataFrame de vendas para o mesmo intervalo de datas das previsões
+    data_inicio = df_previsoes_idx.index.min()
+    data_fim = df_previsoes_idx.index.max()
+    df_venda_periodo = df_venda[(df_venda.index >= data_inicio) & (df_venda.index <= data_fim)]
+    
+    # Juntar os dados reais com as previsões, selecionando apenas as colunas de previsão para evitar sobreposição
+    df_comparacao = df_venda_periodo.join(df_previsoes_idx[['previsao_SARIMAX', 'previsao_TSCV']], how='inner')
+    
+    if df_comparacao.empty:
+        print("Não foi possível comparar os dados. Verifique se as datas nas previsões correspondem aos dados de vendas.")
+        return
+
+    # Configurar os gráficos
+    plt.style.use('seaborn-v0_8')
+    fig, axes = plt.subplots(2, 1, figsize=(18, 14), sharex=True)
+    
+    # --- Gráfico 1: Demanda Real vs. Previsões ---
+    axes[0].plot(df_comparacao.index, df_comparacao['Demanda'], label='Demanda Real', color='black', linewidth=2.5, marker='o', markersize=4, linestyle='--')
+    axes[0].plot(df_comparacao.index, df_comparacao['previsao_SARIMAX'], label='Previsão SARIMAX', color='red', linewidth=2)
+    axes[0].plot(df_comparacao.index, df_comparacao['previsao_TSCV'], label='Previsão TSCV', color='blue', linewidth=2)
+    axes[0].set_title(f'Comparação: Demanda Real vs. Previsões - SKU {sku}')
+    axes[0].set_ylabel('Demanda')
+    axes[0].legend()
+    axes[0].grid(True, which='both', linestyle='--', linewidth=0.5)
+    
+    # --- Gráfico 2: Erros (Resíduos) das Previsões ---
+    erro_sarimax = df_comparacao['Demanda'] - df_comparacao['previsao_SARIMAX']
+    erro_tscv = df_comparacao['Demanda'] - df_comparacao['previsao_TSCV']
+    
+    axes[1].plot(df_comparacao.index, erro_sarimax, label='Erro SARIMAX (Real - Previsto)', color='red', alpha=0.8)
+    axes[1].plot(df_comparacao.index, erro_tscv, label='Erro TSCV (Real - Previsto)', color='blue', alpha=0.8)
+    axes[1].axhline(0, color='black', linestyle='--', linewidth=1, label='Erro Zero')
+    axes[1].set_title(f'Erro de Previsão (Resíduos) - SKU {sku}')
+    axes[1].set_xlabel('Data')
+    axes[1].set_ylabel('Erro de Demanda')
+    axes[1].legend()
+    axes[1].grid(True, which='both', linestyle='--', linewidth=0.5)
+    
+    plt.tight_layout()
+    plt.savefig(f'../Graficos/comparacao_previsoes_sku_{sku}.png', dpi=300, bbox_inches='tight')
+    plt.show()

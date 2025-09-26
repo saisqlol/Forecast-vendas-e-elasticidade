@@ -71,9 +71,10 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
     
     # Armazenar resultados
     resultados = {
-        'rmse': [], 'wape': [], 'twape': [], 'r2': [], 
+        'rmse': [], 'wape': [], 'twape': [], 
         'coeficientes': [], 'interceptos': [], 'p_valores': [],
-        'erro_medio': [], 'predictions': [], 'actuals': []
+        'erro_medio': [], 'predictions': [], 'actuals': [],
+        'aic': [], 'bic': []  
     }
     
     print(" Executando validação cruzada temporal...")
@@ -107,9 +108,6 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         pesos_temporais = np.arange(1, len(y_test) + 1)
         twape = np.sum(np.abs(y_test - y_pred) * pesos_temporais) / np.sum(np.abs(y_test) * pesos_temporais) * 100
         
-        # R²
-        r2 = r2_score(y_test, y_pred)
-        
         # Erro médio
         erro_medio = np.mean(y_test - y_pred)
         
@@ -120,25 +118,30 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         try:
             model_sm = sm.OLS(y_train_float, X_with_const).fit()
             p_values = model_sm.pvalues[1:] 
+            aic = model_sm.aic
+            bic = model_sm.bic
         except Exception as e:
             print(f"  Erro no teste de significância (fold {fold+1}): {e}")
             p_values = np.ones(len(X_cols))
+            aic = np.nan
+            bic = np.nan
         
         # Armazenar resultados
         resultados['rmse'].append(rmse)
         resultados['wape'].append(wape)
         resultados['twape'].append(twape)
-        resultados['r2'].append(r2)
         resultados['coeficientes'].append(model.coef_)
         resultados['interceptos'].append(model.intercept_)
         resultados['p_valores'].append(p_values)
         resultados['erro_medio'].append(erro_medio)
         resultados['predictions'].extend(y_pred)
         resultados['actuals'].extend(y_test)
+        resultados['aic'].append(aic)
+        resultados['bic'].append(bic)
         
         print(f" Fold {fold + 1}:")
         print(f"   Período teste: {dates_test[0].date()} a {dates_test[-1].date()}")
-        print(f"   RMSE: {rmse:.4f}, WAPE: {wape:.2f}%, R²: {r2:.4f}")
+        print(f"   RMSE: {rmse:.4f}, WAPE: {wape:.2f}%")
     
     print("\n" + "=" * 60)
     print(" RESULTADOS FINAIS DO MODELO")
@@ -149,7 +152,8 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
     print(f"   RMSE: {np.mean(resultados['rmse']):.4f} (±{np.std(resultados['rmse']):.4f})")
     print(f"   WAPE: {np.mean(resultados['wape']):.2f}% (±{np.std(resultados['wape']):.2f}%)")
     print(f"   TWAPE: {np.mean(resultados['twape']):.2f}% (±{np.std(resultados['twape']):.2f}%)")
-    print(f"   R²: {np.mean(resultados['r2']):.4f} (±{np.std(resultados['r2']):.4f})")
+    print(f"   AIC: {np.mean(resultados['aic']):.2f} (±{np.std(resultados['aic']):.2f})")
+    print(f"   BIC: {np.mean(resultados['bic']):.2f} (±{np.std(resultados['bic']):.2f})")
     print(f"   Erro Médio: {np.mean(resultados['erro_medio']):.4f}")
     
     # Coeficientes médios
@@ -182,11 +186,11 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         y_float = y.astype(float)
         model_full = sm.OLS(y_float, X_full).fit()
         
-        print(f"\n Significância Estatística do Modelo:")
+        print(f"\n Significância Estatística do Modelo (treinado com dados completos):")
         print(f"   F-statistic: {model_full.fvalue:.2f}")
         print(f"   Prob (F-statistic): {model_full.f_pvalue:.6f}")
-        print(f"   AIC: {model_full.aic:.2f}")
-        print(f"   BIC: {model_full.bic:.2f}")
+        print(f"   AIC (dados completos): {model_full.aic:.2f}")
+        print(f"   BIC (dados completos): {model_full.bic:.2f}")
     except Exception as e:
         print(f"  Erro na significância geral do modelo: {e}")
         model_full = None
@@ -197,7 +201,8 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
             'rmse': np.mean(resultados['rmse']),
             'wape': np.mean(resultados['wape']),
             'twape': np.mean(resultados['twape']),
-            'r2': np.mean(resultados['r2']),
+            'aic': np.mean(resultados['aic']),
+            'bic': np.mean(resultados['bic']),
             'erro_medio': np.mean(resultados['erro_medio'])
         },
         'coeficientes': coef_medio,
@@ -222,17 +227,14 @@ def converter_para_escala_original(resultados, df):
     # Calcular métricas em escala original
     rmse_orig = np.sqrt(mean_squared_error(actuals_orig, predictions_orig))
     wape_orig = np.sum(np.abs(actuals_orig - predictions_orig)) / np.sum(actuals_orig) * 100
-    r2_orig = r2_score(actuals_orig, predictions_orig)
     
     print(f"\n Métricas em Escala Original:")
     print(f"   RMSE: {rmse_orig:.2f}")
     print(f"   WAPE: {wape_orig:.2f}%")
-    print(f"   R²: {r2_orig:.4f}")
     
     return {
         'rmse_original': rmse_orig,
         'wape_original': wape_orig,
-        'r2_original': r2_orig,
         'predictions_original': predictions_orig,
         'actuals_original': actuals_orig
     }

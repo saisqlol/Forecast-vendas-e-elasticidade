@@ -1,118 +1,97 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 
-class PredictorVendas:
-    def __init__(self, resultados_modelo):
-        """
-        Inicializa o predictor com os resultados do modelo treinado
-        """
-        self.intercepto = resultados_modelo['intercepto']
-        self.coeficientes = resultados_modelo['coeficientes']
-        
-        if 'feature_names' in resultados_modelo:
-            self.feature_names = resultados_modelo['feature_names']
-        else:
-            self.feature_names = ['Log_Preco', 'Black_Friday', 'promocionado_25', 
-                                'Quarta-feira', 'Terça-feira']
-        
-        print("Predictor inicializado com sucesso!")
-        print(f"   Intercepto: {self.intercepto:.6f}")
-        for i, feature in enumerate(self.feature_names):
-            print(f"   {feature}: {self.coeficientes[i]:.6f}")
-    
-    def preparar_features(self, df):
-        """
-        Prepara as features para previsão a partir dos dados brutos
-        """
-        df = df.copy()
-        
-        # Garantir que a data seja datetime
-        if 'Data' in df.columns:
-            df['Data'] = pd.to_datetime(df['Data'])
-        
-        # Calcular Log_Preco
-        df['Log_Preco'] = np.log(df['Preco'])
-        
-        # Criar dummies para dias da semana
-        dias_map = {
-            0: 'Segunda-feira',
-            1: 'Terça-feira', 
-            2: 'Quarta-feira',
-            3: 'Quinta-feira',
-            4: 'Sexta-feira',
-            5: 'Sábado',
-            6: 'Domingo'
-        }
-        
-        # Adicionar colunas de dias da semana
-        for dia_num, dia_nome in dias_map.items():
-            df[dia_nome] = (df['Data'].dt.dayofweek == dia_num).astype(int)
-        
-        return df
-    
-    def prever_demanda(self, df_input):
-        """
-        Faz previsões de demanda para os dados fornecidos
-        
-        Parameters:
-        df_input: DataFrame com colunas 'Data', 'SKU', 'Preco'
-        
-        Returns:
-        DataFrame com previsões adicionadas
-        """
-        # Preparar features
-        df = self.preparar_features(df_input)
-        
-        # Garantir que todas as features necessárias existam
-        missing_features = set(self.feature_names) - set(df.columns)
-        if missing_features:
-            raise ValueError(f"Features faltando: {missing_features}")
-        
-        # Selecionar apenas as features do modelo
-        X = df[self.feature_names]
-        
-        # Fazer previsões em escala log
-        log_demanda_prevista = self.intercepto + X.dot(self.coeficientes)
-        
-        # Converter para escala original
-        demanda_prevista = np.exp(log_demanda_prevista)
-        
-        # Adicionar previsões ao DataFrame original
-        resultado = df_input.copy()
-        resultado['Log_Demanda_Prevista'] = log_demanda_prevista.values
-        resultado['Demanda_Prevista'] = demanda_prevista.values
-        
-        return resultado
-
-def criar_predictor(resultados_modelo):
+def gerar_previsoes_e_relatorios(
+    resultados_tscv, 
+    resultados_sarimax, 
+    sku, 
+    caminho_planilha_previsao,
+    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira']
+):
     """
-    Função conveniente para criar o predictor
-    
-    Parameters:
-    resultados_modelo: dict do modelo treinado
-    
+    Gera previsões a partir dos modelos TSCV e SARIMAX e cria um relatório de comparação.
+
+    Args:
+        resultados_tscv (dict): Dicionário com os resultados do modelo de validação cruzada.
+        resultados_sarimax (SARIMAXResults): Objeto com os resultados do modelo SARIMAX.
+        sku (str): O SKU do produto.
+        caminho_planilha_previsao (str): Caminho para a planilha Excel com os dados para previsão.
+        X_cols_tscv (list): Lista de colunas de features usadas no modelo TSCV.
+
     Returns:
-    PredictorVendas instance
+        tuple: Contendo (df_resultado_previsoes, df_relatorio_modelos).
     """
-    return PredictorVendas(resultados_modelo)
+    print("--- INICIANDO GERAÇÃO DE PREVISÕES E RELATÓRIOS ---")
+    
+    # --- 1. GERAÇÃO DAS PREVISÕES ---
+    
+    # Ler e preparar dados de entrada
+    df_previsao = pd.read_excel(caminho_planilha_previsao)
+    df_previsao['Data'] = pd.to_datetime(df_previsao['Data'])
+    df_previsao['Log_Preco'] = np.log(df_previsao['Preco'].clip(lower=0.01))
 
-def prever_planilha(resultados_modelo, caminho_planilha):
-    """
-    Função completa para prever a partir de uma planilha Excel
+    # -- Previsão com Modelo TSCV (Validação Cruzada) --
+    print("\nCalculando previsões para o modelo de Validação Cruzada (TSCV)...")
     
-    Parameters:
-    resultados_modelo: dict do modelo treinado
-    caminho_planilha: caminho para o arquivo Excel
+    # Criar features dummies necessárias
+    df_previsao['Quarta-feira'] = (df_previsao['Data'].dt.dayofweek == 2).astype(int)
+    df_previsao['Terça-feira'] = (df_previsao['Data'].dt.dayofweek == 1).astype(int)
     
-    Returns:
-    DataFrame com previsões
-    """
-    # Criar predictor
-    predictor = criar_predictor(resultados_modelo)
+    for col in X_cols_tscv:
+        if col not in df_previsao.columns:
+            raise ValueError(f"Coluna necessária para o modelo TSCV não encontrada: {col}")
+            
+    X_tscv = df_previsao[X_cols_tscv]
     
-    # Ler planilha
-    df_input = pd.read_excel(caminho_planilha)
+    log_demanda_tscv = resultados_tscv['intercepto'] + X_tscv.dot(resultados_tscv['coeficientes'])
+    df_previsao['previsao_TSCV'] = np.exp(log_demanda_tscv)
     
-    # Fazer previsões
-    return predictor.prever_demanda(df_input)
+    # -- Previsão com Modelo SARIMAX --
+    print("Calculando previsões para o modelo SARIMAX...")
+    
+    exog_sarimax = df_previsao[['Log_Preco']]
+    exog_sarimax.index = df_previsao['Data']
+    
+    log_demanda_sarimax = resultados_sarimax.forecast(steps=len(df_previsao), exog=exog_sarimax)
+    df_previsao['previsao_SARIMAX'] = np.exp(log_demanda_sarimax.values)
+    
+    # Consolidar resultado das previsões
+    df_resultado_previsoes = df_previsao[['Data', 'SKU', 'Preco', 'previsao_SARIMAX', 'previsao_TSCV']].copy()
+    
+    caminho_csv_previsoes = f'../Resultados/previsoes_consolidadas_{sku}.csv'
+    df_resultado_previsoes.to_csv(caminho_csv_previsoes, index=False, sep=';', decimal=',')
+    print(f"\nArquivo de previsões salvo em: {caminho_csv_previsoes}")
+
+    # --- 2. GERAÇÃO DO RELATÓRIO DE COMPARAÇÃO DE MODELOS ---
+    print("\nGerando relatório de comparação de modelos...")
+    
+    try:
+        idx_log_preco_tscv = X_cols_tscv.index('Log_Preco')
+        coef_log_preco_tscv = resultados_tscv['coeficientes'][idx_log_preco_tscv]
+    except (ValueError, IndexError):
+        coef_log_preco_tscv = np.nan
+
+    coef_log_preco_sarimax = resultados_sarimax.params.get('Log_Preco', np.nan)
+
+    dados_relatorio = {
+        'sku': [sku],
+        'data_rodagem': [datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+        'coef_log_preco_tscv': [coef_log_preco_tscv],
+        'coef_log_preco_sarimax': [coef_log_preco_sarimax],
+        'intercepto_tscv': [resultados_tscv.get('intercepto', np.nan)],
+        'AIC_sarimax': [resultados_sarimax.aic],
+        'BIC_sarimax': [resultados_sarimax.bic],
+        'AIC_cruzado': [resultados_tscv['metricas_medias'].get('aic', np.nan)],
+        'BIC_cruzado': [resultados_tscv['metricas_medias'].get('bic', np.nan)]
+    }
+    
+    df_relatorio_modelos = pd.DataFrame(dados_relatorio)
+    
+    caminho_csv_relatorio = f'../Resultados/relatorio_comparacao_modelos_{sku}.csv'
+    df_relatorio_modelos.to_csv(caminho_csv_relatorio, index=False, sep=';', decimal=',')
+    print(f"Arquivo de relatório de modelos salvo em: {caminho_csv_relatorio}")
+    
+    print("\n--- Processo Concluído ---")
+    
+    return df_resultado_previsoes, df_relatorio_modelos

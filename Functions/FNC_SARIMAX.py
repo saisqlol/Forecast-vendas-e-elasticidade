@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import statsmodels.api as sm
 from statsmodels.tsa.stattools import adfuller
 import warnings
@@ -96,6 +97,32 @@ def modelo_sarimax(df, sku, *exog_vars, endog_var='Log_Demanda', order=(1, 1, 1)
         
         print("--- Sumário do Modelo SARIMAX ---")
         print(resultado.summary())
+        
+        # Cálculo de métricas de erro (RMSE e WAPE)
+        y_true = endog
+        y_pred = resultado.fittedvalues
+        
+        # Alinhar as séries e remover NaNs para cálculo
+        df_comp = pd.DataFrame({'true': y_true, 'pred': y_pred}).dropna()
+        
+        if not df_comp.empty:
+            # RMSE (Root Mean Squared Error)
+            rmse = np.sqrt(np.mean((df_comp['true'] - df_comp['pred'])**2))
+            
+            # WAPE (Weighted Absolute Percentage Error)
+            # Evitar divisão por zero se a soma dos valores verdadeiros for 0
+            sum_true = np.sum(np.abs(df_comp['true']))
+            if sum_true > 0:
+                wape = np.sum(np.abs(df_comp['true'] - df_comp['pred'])) / sum_true * 100
+            else:
+                wape = np.nan # Não é possível calcular se a soma for zero
+            
+            print(f"\nMétricas de Ajuste do Modelo (In-sample):")
+            print(f"  RMSE: {rmse:.4f}")
+            print(f"  WAPE: {wape:.2f}%")
+        else:
+            print("\nNão foi possível calcular métricas de ajuste (sem dados sobrepostos).")
+
         print("-" * 50)
         
         return resultado
