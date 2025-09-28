@@ -256,13 +256,10 @@ def plotar_comparacao_previsoes(df_previsoes, df_venda, sku):
     # Definir a data como índice para facilitar a junção e plotagem
     df_previsoes_idx = df_previsoes.set_index('Data')
     
-    # Filtrar o DataFrame de vendas para o mesmo intervalo de datas das previsões
-    data_inicio = df_previsoes_idx.index.min()
-    data_fim = df_previsoes_idx.index.max()
-    df_venda_periodo = df_venda[(df_venda.index >= data_inicio) & (df_venda.index <= data_fim)]
-    
-    # Juntar os dados reais com as previsões, selecionando apenas as colunas de previsão para evitar sobreposição
-    df_comparacao = df_venda_periodo.join(df_previsoes_idx[['previsao_SARIMAX', 'previsao_TSCV']], how='inner')
+    # Juntar as previsões com os dados de vendas.
+    # Usamos um 'left' join a partir das previsões para garantir que todas as datas de previsão sejam mantidas.
+    # A demanda real (df_venda['Demanda']) será NaN para datas futuras onde não há histórico.
+    df_comparacao = df_previsoes_idx.join(df_venda['Demanda'], how='left')
     
     if df_comparacao.empty:
         print("Não foi possível comparar os dados. Verifique se as datas nas previsões correspondem aos dados de vendas.")
