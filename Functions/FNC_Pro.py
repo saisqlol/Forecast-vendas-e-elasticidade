@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 
-def lista_produtos(base_produtos, Classificacao=None, Ativo=None):
+def lista_produtos(base_produtos, Classificacao=None, Ativo=None, SKUS=None):
     """
     Lê a lista de produtos de uma planilha Excel, com filtros opcionais.
 
@@ -12,6 +12,7 @@ def lista_produtos(base_produtos, Classificacao=None, Ativo=None):
         base_produtos (str): Caminho para o arquivo Excel.
         Classificacao (str, optional): Filtra pela classificação ('A', 'B', 'C'). Defaults to None.
         Ativo (str, optional): Filtra por status ('Sim' ou 'Não'). Defaults to None.
+        SKUS (list, optional): Filtra por uma lista específica de SKUs. Defaults to None.
 
     Returns:
         pd.DataFrame: DataFrame com a coluna 'ID_Sku' dos produtos filtrados.
@@ -46,7 +47,14 @@ def lista_produtos(base_produtos, Classificacao=None, Ativo=None):
     # --- Consolidar os resultados ---
     dff = pd.concat([df, df2], ignore_index=True).drop_duplicates().reset_index(drop=True)
     
-    print(f"Encontrados {len(dff)} SKUs com os filtros: Classificação='{Classificacao}', Ativo='{Ativo}'")
+    # Aplicar filtro de SKUs específicos, se fornecido
+    if SKUS:
+        # Garantir que os SKUs na lista e no DataFrame sejam do mesmo tipo (string) para a comparação
+        skus_a_filtrar = [str(s) for s in SKUS]
+        dff['ID_Sku'] = dff['ID_Sku'].astype(str)
+        dff = dff[dff['ID_Sku'].isin(skus_a_filtrar)]
+    
+    print(f"Encontrados {len(dff)} SKUs com os filtros: Classificação='{Classificacao}', Ativo='{Ativo}', SKUs='{SKUS if SKUS else 'Todos'}'")
     
     return dff
     

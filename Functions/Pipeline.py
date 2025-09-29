@@ -2,6 +2,8 @@ import pandas as pd
 import traceback
 from datetime import datetime
 import warnings
+import joblib
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -65,6 +67,18 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
                 order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)
             )
 
+            # --- Salvar os modelos treinados ---
+            print(f"  Salvando modelos para o SKU {sku}...")
+            caminho_modelo_tscv = f'../Modelos/modelo_tscv_{sku}.joblib'
+            caminho_modelo_sarimax = f'../Modelos/modelo_sarimax_{sku}.pkl'
+            
+            # Salvar o dicionário de resultados do TSCV
+            joblib.dump(resultados_tscv, caminho_modelo_tscv)
+            
+            # Salvar o resultado do fit do SARIMAX
+            resultado_sarimax.save(caminho_modelo_sarimax)
+
+
             # 4. Gerar Relatório de Comparação de Modelos
             print(f"  [3/4] Gerando relatório de comparação de modelos...")
             df_relatorio = gerar_relatorio_comparacao(
@@ -104,14 +118,14 @@ def pipeline_completa_skus(df_produtos, caminho_planilha_precos, n_splits=10):
     
     # Consolidar e salvar relatórios
     df_relatorios_final = pd.concat(relatorios_consolidados, ignore_index=True)
-    caminho_relatorio = f'../Resultados/Relatorio_Modelos_Consolidado_{datetime.now():%Y%m%d}.csv'
+    caminho_relatorio = f'../Resultados/Relatorio_Modelos_Consolidado_.csv'
     df_relatorios_final.to_csv(caminho_relatorio, index=False, sep=';', decimal=',')
     print(f"Relatório de modelos consolidado salvo em: {caminho_relatorio}")
 
     # Consolidar e salvar previsões futuras
     if previsoes_futuras_consolidadas:
         df_previsoes_futuras_final = pd.concat(previsoes_futuras_consolidadas, ignore_index=True)
-        caminho_previsoes = f'../Resultados/Previsoes_Futuras_Consolidadas_{datetime.now():%Y%m%d}.csv'
+        caminho_previsoes = f'../Resultados/Previsoes_Futuras_Consolidadas_.csv'
         df_previsoes_futuras_final.to_csv(caminho_previsoes, index=False, sep=';', decimal=',')
         print(f"Previsões futuras consolidadas salvas em: {caminho_previsoes}")
     else:

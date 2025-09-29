@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
+import joblib
+from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+import os
 
 def gerar_previsoes_e_relatorios(
     resultados_tscv, 
@@ -245,3 +248,76 @@ def pred_prox_30_dias(
         plt.show()
 
     return df_futuro
+
+def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_precos):
+    """
+    Gera previsões de demanda utilizando os arquivos de modelo salvos.
+
+    Args:
+        caminho_pasta_modelos (str): Caminho para a pasta onde os modelos (.joblib e .pkl) estão salvos.
+        caminho_planilha_precos (str): Caminho para a planilha Excel com os SKUs e preços para prever.
+
+    Returns:
+        pd.DataFrame: DataFrame com as previsões para os SKUs encontrados em ambos os locais.
+    """
+    print("--- INICIANDO PREVISÃO A PARTIR DE MODELOS SALVOS ---")
+
+    # 1. Ler a planilha de preços
+    try:
+        df_precos = pd.read_excel(caminho_planilha_precos)
+    except FileNotFoundError as e:
+        print(f"ERRO: Arquivo de preços não encontrado - {e}")
+        return pd.DataFrame()
+
+    df_precos['SKU'] = df_precos['SKU'].astype(str)
+    skus_para_prever = df_precos['SKU'].unique()
+    print(f"Encontrados {len(skus_para_prever)} SKUs no arquivo de preços.")
+
+    # 2. Iterar e gerar previsões
+    previsoes_finais = []
+    for sku in skus_para_prever:
+        print(f"  Processando SKU: {sku}")
+        dados_sku_precos = df_precos[df_precos['SKU'] == sku].copy()
+        
+        # Caminhos para os arquivos de modelo
+        caminho_modelo_tscv = os.path.join(caminho_pasta_modelos, f'modelo_tscv_{sku}.joblib')
+        caminho_modelo_sarimax = os.path.join(caminho_pasta_modelos, f'modelo_sarimax_{sku}.pkl')
+
+        if not os.path.exists(caminho_modelo_tscv) or not os.path.exists(caminho_modelo_sarimax):
+            print(f"    AVISO: Arquivos de modelo para o SKU {sku} não encontrados. Pulando.")
+            continue
+
+        # Carregar modelos
+        modelo_tscv_carregado = joblib.load(caminho_modelo_tscv)
+        modelo_sarimax_carregado = SARIMAXResults.load(caminho_modelo_sarimax)
+
+        # Preparar features
+        dados_sku_precos['Data'] = pd.to_datetime(dados_sku_precos['Data'])
+        dados_sku_precos['Log_Preco'] = np.log(dados_sku_precos['Preco'].clip(lower=0.01))
+        dados_sku_precos['Quarta-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 2).astype(int)
+        dados_sku_precos['Terça-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 1).astype(int)
+
+        # Previsão TSCV
+        X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira']
+        X_tscv = dados_sku_precos[X_cols_tscv]
+        log_demanda_tscv = modelo_tscv_carregado['intercepto'] + X_tscv.dot(modelo_tscv_carregado['coeficientes'])
+        dados_sku_precos['previsao_TSCV'] = np.exp(log_demanda_tscv)
+
+        # Previsão SARIMAX (correta)
+        exog_sarimax = dados_sku_precos[['Log_Preco']]
+        exog_sarimax.index = dados_sku_precos['Data']
+        previsao_sarimax = modelo_sarimax_carregado.forecast(steps=len(dados_sku_precos), exog=exog_sarimax)
+        dados_sku_precos['previsao_SARIMAX'] = np.exp(previsao_sarimax.values)
+        
+        previsoes_finais.append(dados_sku_precos)
+
+    if not previsoes_finais:
+        print("Nenhuma previsão pôde ser gerada.")
+        return pd.DataFrame()
+
+    # 4. Consolidar e retornar
+    df_final = pd.concat(previsoes_finais, ignore_index=True)
+    colunas_resultado = ['Data', 'SKU', 'Preco', 'previsao_TSCV', 'previsao_SARIMAX']
+    
+    print("\n--- PREVISÃO CONCLUÍDA ---")
+    return df_final[colunas_resultado]
