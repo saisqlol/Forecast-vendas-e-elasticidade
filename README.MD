@@ -114,10 +114,10 @@ No projeto isso se identifica assim:
 
 #### Previsão x Realizado SKU 7172 com base nos preços do arquivo precos_para_previsoes.xlsx
 
-![Forecast x Realizado SKU 7172](previsao_arq_previsao.png)
+![Forecast x Realizado SKU 7172](Graficos/previsao_arq_previsao.png)
 
 #### Realizado dos últimos 30 dias e previsão dos próximos 30 dias utilizando o preço de cada dia -30D
 
-![Forecast 30D SKU 7172](previsao_prox_30d.png)
+![Forecast 30D SKU 7172](Graficos/previsao_prox_30d.png)
 
 
