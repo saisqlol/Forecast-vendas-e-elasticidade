@@ -28,12 +28,25 @@ def gerar_previsoes_e_relatorios(
     # --- 1. GERAÇÃO DAS PREVISÕES ---
     
     # Ler e preparar dados de entrada
-    df_previsao = pd.read_excel(caminho_planilha_previsao)
+    df_previsao_completo = pd.read_excel(caminho_planilha_previsao)
+    
+    # Garantir que a coluna SKU seja do mesmo tipo (string) para a comparação
+    df_previsao_completo['SKU'] = df_previsao_completo['SKU'].astype(str)
+    sku = str(sku) # Garantir que o SKU de entrada também seja string
+    
+    # Filtrar o DataFrame de previsão para conter apenas o SKU em análise
+    df_previsao = df_previsao_completo[df_previsao_completo['SKU'] == sku].copy()
+
+    if df_previsao.empty:
+        print(f"AVISO: Nenhum dado encontrado para o SKU {sku} no arquivo de previsão. A função será encerrada.")
+        # Retorna DataFrames vazios para evitar erros no notebook
+        return pd.DataFrame(), pd.DataFrame()
+
     df_previsao['Data'] = pd.to_datetime(df_previsao['Data'])
     df_previsao['Log_Preco'] = np.log(df_previsao['Preco'].clip(lower=0.01))
 
     # -- Previsão com Modelo TSCV (Validação Cruzada) --
-    print("\nCalculando previsões para o modelo de Validação Cruzada (TSCV)...")
+    print(f"\nCalculando previsões para o SKU {sku} com o modelo de Validação Cruzada (TSCV)...")
     
     # Criar features dummies necessárias
     df_previsao['Quarta-feira'] = (df_previsao['Data'].dt.dayofweek == 2).astype(int)
@@ -49,7 +62,7 @@ def gerar_previsoes_e_relatorios(
     df_previsao['previsao_TSCV'] = np.exp(log_demanda_tscv)
     
     # -- Previsão com Modelo SARIMAX --
-    print("Calculando previsões para o modelo SARIMAX...")
+    print(f"Calculando previsões para o SKU {sku} com o modelo SARIMAX...")
     
     exog_sarimax = df_previsao[['Log_Preco']]
     exog_sarimax.index = df_previsao['Data']
@@ -97,12 +110,49 @@ def gerar_previsoes_e_relatorios(
     
     return df_resultado_previsoes, df_relatorio_modelos
 
+def gerar_relatorio_comparacao(resultados_tscv, resultados_sarimax, sku, X_cols_tscv):
+    """
+    Gera um DataFrame com o relatório de comparação dos resultados dos modelos.
+
+    Args:
+        resultados_tscv (dict): Dicionário com os resultados do modelo de validação cruzada.
+        resultados_sarimax (SARIMAXResults): Objeto com os resultados do modelo SARIMAX.
+        sku (str): O SKU do produto.
+        X_cols_tscv (list): Lista de colunas de features usadas no modelo TSCV.
+
+    Returns:
+        pd.DataFrame: DataFrame com o relatório consolidado para o SKU.
+    """
+    # Extrair coeficientes do TSCV de forma segura
+    coeficientes_tscv = {}
+    for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira']:
+        try:
+            idx = X_cols_tscv.index(col)
+            coeficientes_tscv[f'coef_{col.lower()}_tscv'] = resultados_tscv['coeficientes'][idx]
+        except (ValueError, IndexError):
+            coeficientes_tscv[f'coef_{col.lower()}_tscv'] = np.nan
+
+    dados_relatorio = {
+        'sku': sku,
+        'data_rodagem': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'intercepto_tscv': resultados_tscv.get('intercepto', np.nan),
+        **coeficientes_tscv, # Adiciona os coeficientes extraídos
+        'coef_log_preco_sarimax': resultados_sarimax.params.get('Log_Preco', np.nan),
+        'AIC_sarimax': resultados_sarimax.aic,
+        'BIC_sarimax': resultados_sarimax.bic,
+        'AIC_cruzado': resultados_tscv['metricas_medias'].get('aic', np.nan),
+        'BIC_cruzado': resultados_tscv['metricas_medias'].get('bic', np.nan)
+    }
+    
+    return pd.DataFrame([dados_relatorio])
+
 def pred_prox_30_dias(
     resultados_tscv,
     resultados_sarimax,
     df_venda,
     sku,
-    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira']
+    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira'],
+    gerar_grafico=True
 ):
     """
     Prevê a demanda para os próximos 30 dias com base no último preço conhecido
@@ -114,6 +164,7 @@ def pred_prox_30_dias(
         df_venda (pd.DataFrame): DataFrame com os dados históricos de vendas.
         sku (str): O SKU do produto.
         X_cols_tscv (list): Lista de colunas de features usadas no modelo TSCV.
+        gerar_grafico (bool): Se True, gera e salva um gráfico da previsão.
 
     Returns:
         pd.DataFrame: DataFrame com as previsões para os próximos 30 dias.
@@ -165,30 +216,32 @@ def pred_prox_30_dias(
     log_demanda_sarimax = resultados_sarimax.forecast(steps=30, exog=exog_sarimax)
     df_futuro['previsao_SARIMAX'] = np.exp(log_demanda_sarimax.values)
 
-    # 3. Preparar dados para o gráfico
-    df_historico = df_venda.last('30D')
-    df_futuro_plot = df_futuro.set_index('Data')
+    if gerar_grafico:
+        print("  Gerando gráfico de previsão futura...")
+        # 3. Preparar dados para o gráfico
+        df_historico = df_venda.last('30D')
+        df_futuro_plot = df_futuro.set_index('Data')
 
-    # 4. Gerar o gráfico
-    plt.style.use('seaborn-v0_8')
-    plt.figure(figsize=(18, 8))
+        # 4. Gerar o gráfico
+        plt.style.use('seaborn-v0_8')
+        plt.figure(figsize=(18, 8))
 
-    plt.plot(df_historico.index, df_historico['Demanda'], label='Demanda Real (Últimos 30 dias)', color='black', marker='o', markersize=4, linestyle='--')
-    plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_SARIMAX'], label='Previsão SARIMAX (Próximos 30 dias)', color='red', linewidth=2)
-    plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_TSCV'], label='Previsão TSCV (Próximos 30 dias)', color='blue', linewidth=2)
+        plt.plot(df_historico.index, df_historico['Demanda'], label='Demanda Real (Últimos 30 dias)', color='black', marker='o', markersize=4, linestyle='--')
+        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_SARIMAX'], label='Previsão SARIMAX (Próximos 30 dias)', color='red', linewidth=2)
+        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_TSCV'], label='Previsão TSCV (Próximos 30 dias)', color='blue', linewidth=2)
 
-    plt.title(f'Previsão de Demanda para os Próximos 30 Dias - SKU {sku}')
-    plt.xlabel('Data')
-    plt.ylabel('Demanda')
-    plt.legend()
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    
-    # Adicionar uma linha vertical para separar o histórico da previsão
-    plt.axvline(ultima_data, color='gray', linestyle=':', linewidth=2)
+        plt.title(f'Previsão de Demanda para os Próximos 30 Dias - SKU {sku}')
+        plt.xlabel('Data')
+        plt.ylabel('Demanda')
+        plt.legend()
+        plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+        
+        # Adicionar uma linha vertical para separar o histórico da previsão
+        plt.axvline(ultima_data, color='gray', linestyle=':', linewidth=2)
 
-    caminho_grafico = f'../Graficos/previsao_30_dias_sku_{sku}.png'
-    plt.savefig(caminho_grafico, dpi=300, bbox_inches='tight')
-    print(f"\nGráfico de previsão salvo em: {caminho_grafico}")
-    plt.show()
+        caminho_grafico = f'../Graficos/previsao_30_dias_sku_{sku}.png'
+        plt.savefig(caminho_grafico, dpi=300, bbox_inches='tight')
+        print(f"\nGráfico de previsão salvo em: {caminho_grafico}")
+        plt.show()
 
     return df_futuro

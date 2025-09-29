@@ -148,7 +148,7 @@ def avaliar_dados_series_temporais(df, sku):
     # 6.5 Top 3 preços mais praticados
     plt.subplot(4, 2, 6)
     top_prices = df['Preco'].value_counts().nlargest(3)
-    sns.barplot(x=top_prices.index, y=top_prices.values, palette='viridis', order=top_prices.index)
+    sns.barplot(x=top_prices.index, y=top_prices.values, hue=top_prices.index, palette='viridis', order=top_prices.index, legend=False)
     plt.title('Top 3 Preços Mais Frequentes')
     plt.xlabel('Preço')
     plt.ylabel('Contagem de Dias')

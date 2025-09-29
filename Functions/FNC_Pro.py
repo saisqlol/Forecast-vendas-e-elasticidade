@@ -4,13 +4,50 @@ import os
 import numpy as np
 
 
-def lista_produtos(base_produtos):
-    df = pd.read_excel(base_produtos,'PLAN DE MKT (2)')
+def lista_produtos(base_produtos, Classificacao=None, Ativo=None):
+    """
+    Lê a lista de produtos de uma planilha Excel, com filtros opcionais.
+
+    Args:
+        base_produtos (str): Caminho para o arquivo Excel.
+        Classificacao (str, optional): Filtra pela classificação ('A', 'B', 'C'). Defaults to None.
+        Ativo (str, optional): Filtra por status ('Sim' ou 'Não'). Defaults to None.
+
+    Returns:
+        pd.DataFrame: DataFrame com a coluna 'ID_Sku' dos produtos filtrados.
+    """
+    # --- Processar a aba 'PLAN DE MKT (2)' ---
+    df = pd.read_excel(base_produtos, 'PLAN DE MKT (2)')
+    
+    # Aplicar filtro de Classificação, se fornecido (usando 'contains')
+    if Classificacao and 'Classificação 2.0' in df.columns:
+        df = df[df['Classificação 2.0'].astype(str).str.contains(Classificacao, case=False, na=False)]
+        
     df = df[['ID_Sku']]
-    df2 = pd.read_excel(base_produtos,'KITs Virtuais')
-    df2 = df2[['ID_KIT']].drop_duplicates()
-    df2 = df2.rename(columns={'ID_KIT':'ID_Sku'})
-    dff = pd.concat([df,df2],ignore_index=True)
+
+    # --- Processar a aba 'KITs Virtuais' ---
+    df2 = pd.read_excel(base_produtos, 'KITs Virtuais')
+
+    # Aplicar filtro de Classificação, se fornecido (usando 'contains')
+    if Classificacao and 'Classificação SKU' in df2.columns:
+        df2 = df2[df2['Classificação SKU'].astype(str).str.contains(Classificacao, case=False, na=False)]
+
+    # Aplicar filtro de Ativo, se fornecido
+    if Ativo and 'Sku_Ativo' in df2.columns:
+        # Converte a coluna e o filtro para minúsculas para uma comparação robusta
+        df2 = df2[df2['Sku_Ativo'].astype(str).str.strip().str.lower() == Ativo.lower()]
+
+    # Renomear e selecionar a coluna do SKU
+    if 'ID_KIT' in df2.columns:
+        df2 = df2[['ID_KIT']].rename(columns={'ID_KIT': 'ID_Sku'})
+    else:
+        df2 = pd.DataFrame(columns=['ID_Sku'])
+
+    # --- Consolidar os resultados ---
+    dff = pd.concat([df, df2], ignore_index=True).drop_duplicates().reset_index(drop=True)
+    
+    print(f"Encontrados {len(dff)} SKUs com os filtros: Classificação='{Classificacao}', Ativo='{Ativo}'")
+    
     return dff
     
     
@@ -94,6 +131,11 @@ def Base_venda(sku):
 
     df['Log_Preco_7D'] = np.log(df['Med_Preco_7_Dia'])
     df['Log_Demanda_7D'] = np.log(df['Med_Demanda_7_Dia'])
+
+    # Substituir -inf e NaN por 0 após o cálculo dos logs
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna({'Log_Preco_7D': 0, 'Log_Demanda_7D': 0}, inplace=True)
+
     condicao = (df['Log_Demanda'] == 0) | (np.isinf(df['Log_Demanda']))
     df.loc[condicao, 'Log_Demanda'] = df.loc[condicao, 'Log_Demanda_7D']
     # Calcular desconto percentual
