@@ -12,5 +12,9 @@ Graficos/previsao_30_dias_sku_29207.png
 Graficos/previsao_30_dias_sku_15347.png
 Graficos/previsao_30_dias_sku_3913.png
 Graficos/previsao_30_dias_sku_2960.png
+
+# Ignorar todos os arquivos dentro da pasta Modelos
 Modelos/*
+
+# Ignorar todos os arquivos dentro da pasta Resultados
 Resultados/*
