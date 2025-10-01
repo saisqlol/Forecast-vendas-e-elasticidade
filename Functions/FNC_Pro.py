@@ -4,6 +4,12 @@ import os
 import numpy as np
 
 
+def produtos_selecionados(base_selecionada):
+    df = pd.read_excel(base_selecionada)
+    lista_de_valores = df.iloc[:, 0].astype(str).tolist()
+
+    return lista_de_valores
+
 def lista_produtos(base_produtos, Classificacao=None, Ativo=None, SKUS=None):
     """
     Lê a lista de produtos de uma planilha Excel, com filtros opcionais.

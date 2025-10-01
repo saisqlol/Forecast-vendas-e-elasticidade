@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 # Importar todas as funções necessárias para o pipeline
 from Functions.FNC_Pro import Base_venda
 from Functions.FNC_TSCV import modelo_validacao_cruzada_series_temporais
-from Functions.FNC_SARIMAX import modelo_sarimax, encontrar_melhores_parametros_sarimax
+from Functions.FNC_ARIMAX import modelo_sarimax, encontrar_melhores_parametros_sarimax
 from Functions.FNC_Previsoes import gerar_relatorio_comparacao
 
 def pipeline_completa_skus(df_produtos, n_splits=10):
@@ -35,10 +35,10 @@ def pipeline_completa_skus(df_produtos, n_splits=10):
     skus_processados = 0
     skus_com_erro = 0
     
-    for idx, row in df_produtos.iterrows():
-        sku = str(row['ID_Sku']).strip()
+    for i, row in enumerate(df_produtos.itertuples(), 1):
+        sku = str(row.ID_Sku).strip()
         
-        print(f"\n>>> Processando SKU {sku} ({idx + 1}/{len(df_produtos)}) <<<")
+        print(f"\n>>> Processando SKU {sku} ({i}/{len(df_produtos)}) <<<")
         
         try:
             Venda = Base_venda(sku)

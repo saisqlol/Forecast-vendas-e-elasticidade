@@ -4,7 +4,8 @@ Este projeto tem como visão, desenvolver uma ferramenta de previsão de vendas 
 
 A previsão é feita comparando dois modelos principais:
 1.  **Validação Cruzada em Séries Temporais (TSCV):** Um modelo de regressão robusto que respeita a ordem cronológica dos dados.
-2.  **ARIMAX:** Uma evolução do modelo SARIMAX, otimizado para ser mais estável e confiável em previsões futuras.
+2.  **ARIMAX (AutoRegressive Integrated Moving Average with eXogenous variables):** Um modelo de série temporal que prevê valores futuros com base em seus próprios valores passados e em variáveis externas.
+    *   **SARIMAX:** Uma versão mais complexa que inclui componentes sazonais, mas que foi substituída pelo ARIMAX neste projeto para garantir maior estabilidade nas previsões.
 
 ### Premissas
 
@@ -48,7 +49,7 @@ O fluxo de trabalho é dividido em duas etapas principais: **Treino** e **Teste/
 - **Loop de Treinamento:** Para cada SKU, o `pipeline_completa_skus` executa os seguintes passos:
     - **Coleta de Dados:** A função `Base_venda` busca o histórico de vendas.
     - **Treino do TSCV:** O modelo de validação cruzada é treinado.
-    - **Treino do ARIMAX:** A função `encontrar_melhores_parametros_sarimax` busca a melhor configuração de modelo (com `d=0` e `seasonal=False` para estabilidade) e o treina.
+    - **Treino do ARIMAX:** A função `encontrar_melhores_parametros_sarimax` utiliza a biblioteca **`pmdarima`** para realizar uma busca automática (`auto_arima`) pela melhor configuração de parâmetros (p, q). Ela é configurada para construir um modelo estável (com `d=0` e `seasonal=False`) e depois o treina.
     - **Geração de Relatório:** A função `gerar_relatorio_comparacao` é chamada para consolidar os resultados.
 - **Seleção do Modelo Ideal:** Dentro da `gerar_relatorio_comparacao`, é criada a coluna `modelo_ideal` com base em duas regras:
     1.  **Critério de Segurança (RMSE):** Se o erro (RMSE) do TSCV for maior que o do ARIMAX, o **ARIMAX é o escolhido**.
