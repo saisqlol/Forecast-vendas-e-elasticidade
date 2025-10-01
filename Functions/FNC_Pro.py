@@ -68,7 +68,7 @@ def Base_venda(sku):
     query =f"""
     SELECT Data, SKU, Preco_Listado, Med_Preco_Dia AS Preco, Qtd_Vendida AS Demanda 
     FROM `epoca-230913.VTEX.Extracao_Base_Modelo` 
-    WHERE sku = '{sku}'
+    WHERE sku = '{sku}' AND EXTRACT(YEAR FROM Data) >= EXTRACT(YEAR FROM CURRENT_DATE())-2
     """
     client = bigquery.Client()
     query_job = client.query(query)

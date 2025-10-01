@@ -64,46 +64,78 @@ def gerar_previsoes_e_relatorios(
     log_demanda_tscv = resultados_tscv['intercepto'] + X_tscv.dot(resultados_tscv['coeficientes'])
     df_previsao['previsao_TSCV'] = np.exp(log_demanda_tscv)
     
-    # -- Previsão com Modelo SARIMAX --
+    # -- Previsão com Modelo SARIMAX (Iterativa para Robustez) --
     print(f"Calculando previsões para o SKU {sku} com o modelo SARIMAX...")
     
-    exog_sarimax = df_previsao[['Log_Preco']]
-    exog_sarimax.index = df_previsao['Data']
+    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_previsao.columns]
+    df_previsao_indexed = df_previsao.set_index('Data')
     
-    log_demanda_sarimax = resultados_sarimax.forecast(steps=len(df_previsao), exog=exog_sarimax)
-    df_previsao['previsao_SARIMAX'] = np.exp(log_demanda_sarimax.values)
+    previsoes_sarimax_log = []
+    for data_atual in df_previsao_indexed.index:
+        exog_atual = df_previsao_indexed.loc[[data_atual], exog_cols_sarimax]
+        # Garantir que o índice tenha a frequência correta ('D' para diário)
+        exog_atual.index.freq = 'D'
+        
+        previsao_passo = resultados_sarimax.predict(
+            start=data_atual,
+            end=data_atual,
+            exog=exog_atual
+        )
+        previsoes_sarimax_log.append(previsao_passo.iloc[0])
+
+    df_previsao['previsao_SARIMAX_log'] = previsoes_sarimax_log
+    df_previsao['previsao_SARIMAX'] = np.exp(df_previsao['previsao_SARIMAX_log'])
     
+    # --- Lógica para a coluna 'previsao_total' ---
+    # 1. Determinar o modelo ideal com base no AIC e RMSE
+    aic_tscv = resultados_tscv['metricas_medias'].get('aic', np.inf)
+    aic_sarimax = resultados_sarimax.aic
+    
+    rmse_tscv = resultados_tscv['metricas_medias'].get('rmse', np.inf)
+    rmse_sarimax = getattr(resultados_sarimax, 'custom_metrics', {}).get('rmse', np.inf)
+
+    # Regra de decisão:
+    # 1. O modelo com menor AIC é o preferido.
+    # 2. REGRA DE DESEMPATE/SEGURANÇA: Se o erro (RMSE) do TSCV for maior que o do SARIMAX,
+    #    o SARIMAX é escolhido, mesmo que seu AIC seja um pouco maior.
+    modelo_ideal_aic = 'TSCV' if aic_tscv < aic_sarimax else 'SARIMAX'
+    
+    if rmse_tscv > rmse_sarimax:
+        modelo_ideal = 'SARIMAX'
+        print(f"  DECISÃO: SARIMAX escolhido como modelo ideal (RMSE TSCV {rmse_tscv:.4f} > RMSE SARIMAX {rmse_sarimax:.4f})")
+    else:
+        modelo_ideal = modelo_ideal_aic
+        print(f"  DECISÃO: {modelo_ideal} escolhido como modelo ideal (baseado no AIC)")
+
+    # 2. Criar a previsão total com base no modelo ideal
+    df_previsao['previsao_total'] = np.where(
+        modelo_ideal == 'TSCV',
+        df_previsao['previsao_TSCV'],
+        df_previsao['previsao_SARIMAX']
+    )
+    
+    # 3. Aplicar a regra de segurança: se SARIMAX for >50% menor que TSCV, somar os dois
+    condicao_override = df_previsao['previsao_SARIMAX'] < (0.5 * df_previsao['previsao_TSCV'])
+    df_previsao['previsao_total'] = np.where(
+        condicao_override,
+        df_previsao['previsao_SARIMAX'] + df_previsao['previsao_TSCV'],
+        df_previsao['previsao_total']
+    )
+
     # Consolidar resultado das previsões
-    df_resultado_previsoes = df_previsao[['Data', 'SKU', 'Preco', 'previsao_SARIMAX', 'previsao_TSCV']].copy()
+    df_resultado_previsoes = df_previsao[['Data', 'SKU', 'Preco', 'previsao_SARIMAX', 'previsao_TSCV', 'previsao_total']].copy()
     
     caminho_csv_previsoes = f'../Resultados/previsoes_consolidadas_{sku}.csv'
     df_resultado_previsoes.to_csv(caminho_csv_previsoes, index=False, sep=';', decimal=',')
     print(f"\nArquivo de previsões salvo em: {caminho_csv_previsoes}")
-
-    # --- 2. GERAÇÃO DO RELATÓRIO DE COMPARAÇÃO DE MODELOS ---
-    print("\nGerando relatório de comparação de modelos...")
     
-    try:
-        idx_log_preco_tscv = X_cols_tscv.index('Log_Preco')
-        coef_log_preco_tscv = resultados_tscv['coeficientes'][idx_log_preco_tscv]
-    except (ValueError, IndexError):
-        coef_log_preco_tscv = np.nan
-
-    coef_log_preco_sarimax = resultados_sarimax.params.get('Log_Preco', np.nan)
-
-    dados_relatorio = {
-        'sku': [sku],
-        'data_rodagem': [datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
-        'coef_log_preco_tscv': [coef_log_preco_tscv],
-        'coef_log_preco_sarimax': [coef_log_preco_sarimax],
-        'intercepto_tscv': [resultados_tscv.get('intercepto', np.nan)],
-        'AIC_sarimax': [resultados_sarimax.aic],
-        'BIC_sarimax': [resultados_sarimax.bic],
-        'AIC_cruzado': [resultados_tscv['metricas_medias'].get('aic', np.nan)],
-        'BIC_cruzado': [resultados_tscv['metricas_medias'].get('bic', np.nan)]
-    }
-    
-    df_relatorio_modelos = pd.DataFrame(dados_relatorio)
+    # Gerar o relatório de comparação, agora passando o modelo_ideal
+    df_relatorio_modelos = gerar_relatorio_comparacao(
+        resultados_tscv, 
+        resultados_sarimax, 
+        sku, 
+        X_cols_tscv
+    )
     
     caminho_csv_relatorio = f'../Resultados/relatorio_comparacao_modelos_{sku}.csv'
     df_relatorio_modelos.to_csv(caminho_csv_relatorio, index=False, sep=';', decimal=',')
@@ -126,6 +158,20 @@ def gerar_relatorio_comparacao(resultados_tscv, resultados_sarimax, sku, X_cols_
     Returns:
         pd.DataFrame: DataFrame com o relatório consolidado para o SKU.
     """
+    # --- Lógica para determinar o modelo ideal ---
+    aic_tscv = resultados_tscv['metricas_medias'].get('aic', np.inf)
+    aic_sarimax = resultados_sarimax.aic
+    
+    rmse_tscv = resultados_tscv['metricas_medias'].get('rmse', np.inf)
+    rmse_sarimax = getattr(resultados_sarimax, 'custom_metrics', {}).get('rmse', np.inf)
+
+    modelo_ideal_aic = 'TSCV' if aic_tscv < aic_sarimax else 'ARIMAX'
+    
+    if rmse_tscv > rmse_sarimax:
+        modelo_ideal = 'ARIMAX'
+    else:
+        modelo_ideal = modelo_ideal_aic
+
     # Extrair coeficientes do TSCV de forma segura
     coeficientes_tscv = {}
     for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira']:
@@ -138,9 +184,13 @@ def gerar_relatorio_comparacao(resultados_tscv, resultados_sarimax, sku, X_cols_
     dados_relatorio = {
         'sku': sku,
         'data_rodagem': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'modelo_ideal': modelo_ideal,
         'intercepto_tscv': resultados_tscv.get('intercepto', np.nan),
-        **coeficientes_tscv, # Adiciona os coeficientes extraídos
+        **coeficientes_tscv, # Adiciona os coeficientes do TSCV
+        'intercepto_sarimax': resultados_sarimax.params.get('intercept', np.nan),
         'coef_log_preco_sarimax': resultados_sarimax.params.get('Log_Preco', np.nan),
+        'coef_quarta-feira_sarimax': resultados_sarimax.params.get('Quarta-feira', np.nan),
+        'coef_terça-feira_sarimax': resultados_sarimax.params.get('Terça-feira', np.nan),
         'AIC_sarimax': resultados_sarimax.aic,
         'BIC_sarimax': resultados_sarimax.bic,
         'AIC_cruzado': resultados_tscv['metricas_medias'].get('aic', np.nan),
@@ -213,11 +263,47 @@ def pred_prox_30_dias(
     log_demanda_tscv = resultados_tscv['intercepto'] + X_tscv.dot(resultados_tscv['coeficientes'])
     df_futuro['previsao_TSCV'] = np.exp(log_demanda_tscv)
 
-    # Previsão SARIMAX
-    exog_sarimax = df_futuro[['Log_Preco']]
-    exog_sarimax.index = df_futuro['Data']
-    log_demanda_sarimax = resultados_sarimax.forecast(steps=30, exog=exog_sarimax)
+    # Previsão SARIMAX (usando .get_forecast() para projeção futura contínua)
+    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_futuro.columns]
+    exog_futuro = df_futuro.set_index('Data')[exog_cols_sarimax]
+    # Garantir que o índice tenha a frequência correta ('D' para diário)
+    exog_futuro.index.freq = 'D'
+
+    # .get_forecast() é o método mais robusto para previsões dinâmicas out-of-sample.
+    # Ele projeta o futuro passo a passo, usando a previsão anterior como input para a próxima.
+    forecast_results = resultados_sarimax.get_forecast(steps=len(df_futuro), exog=exog_futuro)
+    log_demanda_sarimax = forecast_results.predicted_mean
     df_futuro['previsao_SARIMAX'] = np.exp(log_demanda_sarimax.values)
+
+    # --- Lógica para a coluna 'previsao_total' ---
+    # 1. Determinar o modelo ideal com base no AIC e RMSE
+    aic_tscv = resultados_tscv['metricas_medias'].get('aic', np.inf)
+    aic_sarimax = resultados_sarimax.aic
+    
+    rmse_tscv = resultados_tscv['metricas_medias'].get('rmse', np.inf)
+    rmse_sarimax = getattr(resultados_sarimax, 'custom_metrics', {}).get('rmse', np.inf)
+
+    modelo_ideal_aic = 'TSCV' if aic_tscv < aic_sarimax else 'SARIMAX'
+    
+    if rmse_tscv > rmse_sarimax:
+        modelo_ideal = 'SARIMAX'
+    else:
+        modelo_ideal = modelo_ideal_aic
+
+    # 2. Criar a previsão total com base no modelo ideal
+    df_futuro['previsao_total'] = np.where(
+        modelo_ideal == 'TSCV',
+        df_futuro['previsao_TSCV'],
+        df_futuro['previsao_SARIMAX']
+    )
+    
+    # 3. Aplicar a regra de segurança
+    condicao_override = df_futuro['previsao_SARIMAX'] < (0.5 * df_futuro['previsao_TSCV'])
+    df_futuro['previsao_total'] = np.where(
+        condicao_override,
+        df_futuro['previsao_SARIMAX'] + df_futuro['previsao_TSCV'],
+        df_futuro['previsao_total']
+    )
 
     if gerar_grafico:
         print("  Gerando gráfico de previsão futura...")
@@ -230,8 +316,9 @@ def pred_prox_30_dias(
         plt.figure(figsize=(18, 8))
 
         plt.plot(df_historico.index, df_historico['Demanda'], label='Demanda Real (Últimos 30 dias)', color='black', marker='o', markersize=4, linestyle='--')
-        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_SARIMAX'], label='Previsão SARIMAX (Próximos 30 dias)', color='red', linewidth=2)
-        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_TSCV'], label='Previsão TSCV (Próximos 30 dias)', color='blue', linewidth=2)
+        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_SARIMAX'], label='Previsão SARIMAX', color='red', linewidth=1.5, alpha=0.7)
+        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_TSCV'], label='Previsão TSCV', color='blue', linewidth=1.5, alpha=0.7)
+        plt.plot(df_futuro_plot.index, df_futuro_plot['previsao_total'], label='Previsão Ideal', color='green', linewidth=2.5)
 
         plt.title(f'Previsão de Demanda para os Próximos 30 Dias - SKU {sku}')
         plt.xlabel('Data')
@@ -297,17 +384,32 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
         dados_sku_precos['Quarta-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 2).astype(int)
         dados_sku_precos['Terça-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 1).astype(int)
 
-        # Previsão TSCV
+        # Previsão TSCV (pode ser feita em lote)
         X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira']
         X_tscv = dados_sku_precos[X_cols_tscv]
         log_demanda_tscv = modelo_tscv_carregado['intercepto'] + X_tscv.dot(modelo_tscv_carregado['coeficientes'])
         dados_sku_precos['previsao_TSCV'] = np.exp(log_demanda_tscv)
 
-        # Previsão SARIMAX (correta)
-        exog_sarimax = dados_sku_precos[['Log_Preco']]
-        exog_sarimax.index = dados_sku_precos['Data']
-        previsao_sarimax = modelo_sarimax_carregado.forecast(steps=len(dados_sku_precos), exog=exog_sarimax)
-        dados_sku_precos['previsao_SARIMAX'] = np.exp(previsao_sarimax.values)
+        # Previsão SARIMAX (deve ser feita de forma iterativa para modelos carregados)
+        previsoes_sarimax_log = []
+        df_previsao_indexed = dados_sku_precos.set_index('Data')
+        exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_previsao_indexed.columns]
+
+        for data_atual in df_previsao_indexed.index:
+            exog_atual = df_previsao_indexed.loc[[data_atual], exog_cols_sarimax]
+            # Garantir que o índice tenha a frequência correta ('D' para diário)
+            exog_atual.index.freq = 'D'
+            
+            # Faz a previsão para um único passo
+            previsao_passo = modelo_sarimax_carregado.predict(
+                start=data_atual,
+                end=data_atual,
+                exog=exog_atual
+            )
+            previsoes_sarimax_log.append(previsao_passo.iloc[0])
+
+        dados_sku_precos['previsao_SARIMAX_log'] = previsoes_sarimax_log
+        dados_sku_precos['previsao_SARIMAX'] = np.exp(dados_sku_precos['previsao_SARIMAX_log'])
         
         previsoes_finais.append(dados_sku_precos)
 

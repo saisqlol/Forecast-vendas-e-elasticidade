@@ -1,9 +1,10 @@
 ## Objetivo do projeto
 
-Este projeto tem como visão, desenvolver uma ferramenta de previsão de vendas útilizando como variáveis exógenas / Independentes, o preço e outras dummies que dependendo dos resultados de performance, podem ser inclusas no cálculo.
+Este projeto tem como visão, desenvolver uma ferramenta de previsão de vendas utilizando como variáveis exógenas / independentes o preço e dummies de dia da semana. O objetivo é encontrar o melhor modelo para cada produto (SKU) e usar seus coeficientes para prever a demanda futura.
 
-A previsão é feita usando um modelo de validação cruzada em séries temporais e o modelo SARIMAX olhando, a priori, com sazonalidade semanal.
-
+A previsão é feita comparando dois modelos principais:
+1.  **Validação Cruzada em Séries Temporais (TSCV):** Um modelo de regressão robusto que respeita a ordem cronológica dos dados.
+2.  **ARIMAX:** Uma evolução do modelo SARIMAX, otimizado para ser mais estável e confiável em previsões futuras.
 
 ### Premissas
 
@@ -13,111 +14,56 @@ Em termos de dados, uma série estacionária é aquela cujas propriedades estat�
 
 Por que isso é importante em modelos de séries temporais?
 
-Modelos como o SARIMAX funcionam muito melhor com dados "comportados" (estacionários). O objetivo deles é capturar o relacionamento entre um ponto no tempo e os pontos anteriores. Se a série tem uma forte tendência de crescimento (ex: suas vendas estão dobrando todo mês), o modelo fica "confuso". Ele não consegue aprender o padrão repetitivo, pois a média está sempre mudando.
+Modelos como o ARIMAX funcionam muito melhor com dados "comportados" (estacionários). O objetivo deles é capturar o relacionamento entre um ponto no tempo e os pontos anteriores. Se a série tem uma forte tendência de crescimento, o modelo fica "confuso".
 
-No projeto a gente faz na função "verificar_estacionariedade" um teste estatístico (ADF) para checar se a série de demanda já é "comportada" ou não.
+No projeto, a função `encontrar_melhores_parametros_sarimax` força a criação de um modelo estacionário (`d=0`), transformando-o em um modelo de **Regressão com Erros ARMA**. Isso significa que a "âncora" da previsão vem das variáveis que entendemos (preço, dias da semana), e os componentes de série temporal (AR e MA) apenas ajustam os "erros" ou padrões residuais, garantindo previsões muito mais estáveis.
 
-É aplicado uma transformação matemática simples chamada **diferenciação** (o "I" do ARIMA), que calcula a diferença entre um dia e o anterior. Em vez de prever o valor da venda, o modelo passa a prever a variação da venda, o que geralmente é muito mais estável e estacionário.
+### Modelo ARIMAX (Anteriormente SARIMAX)
 
+O nome pode ser dividido em **ARIMA** (a parte que olha para o tempo) e **X** (a parte que olha para fatores externos). A parte Sazonal (S) foi removida intencionalmente.
 
-### Modelo SARIMAX
+**Por que a mudança de SARIMAX para ARIMAX?**
 
-O nome pode ser dividido em **SARIMA** (a parte que olha para o tempo) e X (a parte que olha para fatores externos).
+Descobrimos que o componente Sazonal (`S`) do SARIMAX, quando combinado com as dummies de dia da semana, criava um modelo excessivamente complexo e instável para previsões futuras. Ao remover a busca por sazonalidade interna (`seasonal=False`), forçamos o modelo a se basear exclusivamente nas variáveis externas que fornecemos (preço e dias da semana), resultando em previsões muito mais robustas e intuitivas.
 
-ARIMA (p, d, q) -> order=(1, 1, 1) **exemplo do código**
+**ARIMA (p, d, q)**
 
-AR de Autoregressivo - p=1: O modelo usa valores passados da própria variável para prever o futuro.
-
-I de integrado - d=1: O processo de diferenciação, tornando a série estacionária.
-
-MA de média móvel - q=1: O modelo olha para os erros de previsão passados para se corrigir.
-
-    Exemplo: Se o modelo previu ontem 100 unidades e a venda real foi 110, ele errou por 10. O componente MA usa esse erro de ontem para ajustar a previsão de hoje.
-
-S de sazonal - 7: Esta é a parte que captura padrões que se repetem em ciclos.
-
-    s=7: Este é o parâmetro mais importante aqui. Ele informa ao modelo que o ciclo sazonal dura 7 dias (uma semana).
-
-    P=1, D=1, Q=1: Funcionam exatamente como os p, d, q minúsculos, mas em vez de comparar com o dia anterior, eles comparam com o mesmo dia no ciclo anterior.
+*   **AR (Autoregressivo) - `p`:** O modelo usa valores passados da própria variável para prever o futuro.
+*   **I (Integrado) - `d`:** No nosso projeto, forçamos `d=0` para garantir a estabilidade. A estacionariedade é garantida pela estrutura de regressão.
+*   **MA (Média Móvel) - `q`:** O modelo olha para os erros de previsão passados para se corrigir.
 
 ### Validação Cruzada em séries temporais
 
-Validação Cruzada Normal (Errada para o trabalho com séries temporais): Pega todos os seus dados (Janeiro a Dezembro), embaralha tudo e divide em pedaços. O modelo poderia ser treinado com dados de Setembro para prever as vendas de Abril. **Isso é trapaça!**
-É como usar o resultado do jogo de amanhã para apostar no jogo de hoje. O modelo "vê o futuro", e o resultado do teste parece ótimo, mas é uma mentira.
+Validação Cruzada para Séries Temporais respeita a ordem do tempo. O modelo sempre é treinado com dados do passado para prever o futuro, simulando como ele vai operar na vida real.
 
-Validação Cruzada para Séries Temporais: Respeita a ordem do tempo. O modelo sempre é treinado com dados do passado para prever o futuro. Isso simula como ele vai operar na vida real.
+O projeto (`FNC_TSCV.py`) usa uma técnica chamada `TimeSeriesSplit`, que faz exatamente isso. Para `n_splits=10`, ele executa 10 simulações de previsão, expandindo a janela de treino a cada passo e usando o "próximo" pedaço de dados para teste. Ao final, a média dos erros dessas 10 simulações nos dá uma medida realista da performance do modelo.
 
-O projeto (FNV_TSCV.py) usa uma técnica chamada TimeSeriesSplit, que é exatamente isso. Pense que estamos fazendo uma série de "simulações de previsão" ao longo do tempo.
+### Aplicação e Pipeline
 
-Vamos imaginar que você tem 1 ano de dados e seu código está configurado com **n_splits=10.** O que ele faz é o seguinte:
+O fluxo de trabalho é dividido em duas etapas principais: **Treino** e **Teste/Previsão**.
 
-- Simulação 1:
+#### 1. Treinamento (`Calculadora_Elasticidade.ipynb` - Célula "Treino do modelo")
 
-    - **TREINO:** Usa os dados do 1º mês.
+- **Filtragem:** A função `lista_produtos` seleciona os SKUs a serem processados com base nos filtros definidos (Classificação, Ativo, ou uma lista específica de SKUs).
+- **Loop de Treinamento:** Para cada SKU, o `pipeline_completa_skus` executa os seguintes passos:
+    - **Coleta de Dados:** A função `Base_venda` busca o histórico de vendas.
+    - **Treino do TSCV:** O modelo de validação cruzada é treinado.
+    - **Treino do ARIMAX:** A função `encontrar_melhores_parametros_sarimax` busca a melhor configuração de modelo (com `d=0` e `seasonal=False` para estabilidade) e o treina.
+    - **Geração de Relatório:** A função `gerar_relatorio_comparacao` é chamada para consolidar os resultados.
+- **Seleção do Modelo Ideal:** Dentro da `gerar_relatorio_comparacao`, é criada a coluna `modelo_ideal` com base em duas regras:
+    1.  **Critério de Segurança (RMSE):** Se o erro (RMSE) do TSCV for maior que o do ARIMAX, o **ARIMAX é o escolhido**.
+    2.  **Critério Principal (AIC):** Caso contrário, o modelo com o **menor AIC** é selecionado.
+- **Salvamento:** Os objetos dos modelos treinados são salvos na pasta `Modelos`, e um `Relatorio_Modelos_Consolidado.csv` com os resultados de todos os SKUs é salvo na pasta `Resultados`.
 
-    - **TESTE:** Tenta prever os dados do 2º mês.
+#### 2. Teste e Previsão (`Calculadora_Elasticidade.ipynb` - Célula "Teste do modelo")
 
-        *- Guarda o resultado do erro.*
-
-- Simulação 2:
-
-    - **TREINO:** Usa os dados dos meses 1 e 2 (a janela de treino "expandiu").
-
-    - **TESTE:** Tenta prever os dados do 3º mês.
-
-        *- Guarda o resultado do erro.*
-
-- Simulação 3:
-
-    - **TREINO:** Usa os dados dos meses 1, 2 e 3.
-
-    - **TESTE:** Tenta prever os dados do 4º mês.
-
-        *- Guarda o resultado do erro.*
-
-...e assim por diante, por 10 vezes.
-
-No projeto isso se identifica assim:
-
-- **tscv = TimeSeriesSplit(n_splits=10)**
-
-    Tradução: Prepare-se para fazer 10 simulações de previsão, sempre respeitando a ordem do tempo.
-
-- **for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):**
-
-    Tradução: Este é o loop que executa cada uma das 10 simulações. A cada passo, ele pega um pedaço maior de dados para train_idx (passado) e o "próximo" pedaço para test_idx (futuro).
-
-- **model.fit(X_train, y_train) e y_pred = model.predict(X_test)**
-
-    Tradução: Dentro de cada simulação, o modelo é treinado com os dados do passado (X_train) e depois faz as previsões para o futuro (X_test).
-
-- **resultados['rmse'].append(rmse) e resultados['wape'].append(wape)**
-
-    Tradução: Depois de cada simulação, calcule o erro (RMSE, WAPE, etc.) e guarde-o em uma lista.
-
- - **print(f"   RMSE: {np.mean(resultados['rmse']):.4f} ...")**
-
-    Tradução: No final de todas as 10 simulações, calcule a média de todos os erros que guardamos.
-
-### Aplicação e pipeline
-
-- 1 - Filtrar a lista de produtos que irão ser utilizados para filtra a base de vendas e fazer o treino dos modelos
-
-- 2 - Verifica a estacionariedade dos dados de demandas para a base de venda do produto
-
-- 3 - Aplica as configurações do modelo e executa o FNC_TSCV.py e depois o FNC_SARIMAX.py
-
-- 4 - Agrega os resultados a partir do FNC_Previsoes.py no dataframe de Relatorio_Modelos_Consolidado.csv
-
+- **Leitura de Cenários:** A célula lê o arquivo `Precos_para_previsoes.xlsx` para identificar para quais SKUs e com quais preços as previsões devem ser geradas.
+- **Loop de Previsão:** Para cada SKU encontrado no arquivo de preços:
+    - **Carregamento:** Os modelos TSCV e ARIMAX correspondentes são carregados da pasta `Modelos`.
+    - **Previsão de 30 Dias:** A função `pred_prox_30_dias` é chamada para gerar a previsão futura, que agora inclui a coluna `previsao_total` baseada na mesma lógica do `modelo_ideal`.
 
 ### Resultados
 
-#### Previsão x Realizado SKU 7172 com base nos preços do arquivo precos_para_previsoes.xlsx
-
-![Forecast x Realizado SKU 7172](Graficos/previsao_arq_previsao.png)
-
-#### Realizado dos últimos 30 dias e previsão dos próximos 30 dias utilizando o preço de cada dia -30D
-
-![Forecast 30D SKU 7172](Graficos/previsao_prox_30d.png)
+Os resultados são visualizados através dos gráficos gerados e dos DataFrames consolidados, permitindo uma análise completa da performance e das projeções de cada modelo.
 
 

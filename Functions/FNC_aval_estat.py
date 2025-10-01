@@ -270,9 +270,10 @@ def plotar_comparacao_previsoes(df_previsoes, df_venda, sku):
     fig, axes = plt.subplots(2, 1, figsize=(18, 14), sharex=True)
     
     # --- Gráfico 1: Demanda Real vs. Previsões ---
-    axes[0].plot(df_comparacao.index, df_comparacao['Demanda'], label='Demanda Real', color='black', linewidth=2.5, marker='o', markersize=4, linestyle='--')
-    axes[0].plot(df_comparacao.index, df_comparacao['previsao_SARIMAX'], label='Previsão SARIMAX', color='red', linewidth=2)
-    axes[0].plot(df_comparacao.index, df_comparacao['previsao_TSCV'], label='Previsão TSCV', color='blue', linewidth=2)
+    axes[0].plot(df_comparacao.index, df_comparacao['Demanda'], label='Demanda Real', color='black', linewidth=2, marker='o', markersize=4, linestyle='--')
+    axes[0].plot(df_comparacao.index, df_comparacao['previsao_SARIMAX'], label='Previsão SARIMAX', color='red', linewidth=1.5, alpha=0.7)
+    axes[0].plot(df_comparacao.index, df_comparacao['previsao_TSCV'], label='Previsão TSCV', color='blue', linewidth=1.5, alpha=0.7)
+    axes[0].plot(df_comparacao.index, df_comparacao['previsao_total'], label='Previsão Ideal', color='green', linewidth=2.5)
     axes[0].set_title(f'Comparação: Demanda Real vs. Previsões - SKU {sku}')
     axes[0].set_ylabel('Demanda')
     axes[0].legend()

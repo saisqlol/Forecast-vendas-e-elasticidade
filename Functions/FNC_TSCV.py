@@ -8,12 +8,13 @@ import statsmodels.api as sm
 import warnings
 warnings.filterwarnings('ignore')
 
-def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=10):
+def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=10, verbose=True):
     """
     Modelo de validação cruzada para séries temporais com métricas completas
     """
     
-    print(f"=== MODELO DE VALIDAÇÃO CRUZADA - SKU {sku} ===\n")
+    if verbose:
+        print(f"=== MODELO DE VALIDAÇÃO CRUZADA - SKU {sku} ===\n")
     
     #  VERIFICAR se há múltiplas variáveis
     
@@ -21,12 +22,14 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
     
     # Se só tiver uma variável, garantir que seja 2D
     if len(X_cols) == 1:
-        print("  Apenas uma variável preditora - ajustando dimensões...")
+        if verbose:
+            print("  Apenas uma variável preditora - ajustando dimensões...")
     
     y_col = var_dpd
 
     # VERIFICAR E LIMPAR DADOS ANTES DE PROCESSAR
-    print("Verificando qualidade dos dados...")
+    if verbose:
+        print("Verificando qualidade dos dados...")
     
     # Verificar valores infinitos ou muito grandes
     y = df[y_col].astype(float).values
@@ -35,20 +38,23 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
     # Identificar problemas em y
     problemas_y = np.isinf(y) | np.isnan(y) | (np.abs(y) > 1e10)
     if problemas_y.any():
-        print(f"Encontrados {problemas_y.sum()} valores problemáticos em {y_col}")
-        print(f"Valores únicos problemáticos: {np.unique(y[problemas_y])}")
+        if verbose:
+            print(f"Encontrados {problemas_y.sum()} valores problemáticos em {y_col}")
+            print(f"Valores únicos problemáticos: {np.unique(y[problemas_y])}")
         
         # Remover ou corrigir linhas problemáticas
         indices_problema = np.where(problemas_y)[0]
         indices_validos = np.where(~problemas_y)[0]
         
         if len(indices_validos) > len(X_cols) * 2:  # Mínimo para modelagem
-            print(f"   Removendo {len(indices_problema)} linhas problemáticas")
+            if verbose:
+                print(f"   Removendo {len(indices_problema)} linhas problemáticas")
             y = y[indices_validos]
             X = X.iloc[indices_validos]
             dates = df.index[indices_validos]
         else:
-            print(f"Dados insuficientes após limpeza. Usando fallback.")
+            if verbose:
+                print(f"Dados insuficientes após limpeza. Usando fallback.")
             # Fallback: substituir por valores próximos
             from scipy import stats
             y[problemas_y] = np.nanmedian(y[~problemas_y])
@@ -77,8 +83,9 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         'aic': [], 'bic': []  
     }
     
-    print(" Executando validação cruzada temporal...")
-    print("=" * 60)
+    if verbose:
+        print(" Executando validação cruzada temporal...")
+        print("=" * 60)
     
     for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
         # Separar dados
@@ -121,7 +128,8 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
             aic = model_sm.aic
             bic = model_sm.bic
         except Exception as e:
-            print(f"  Erro no teste de significância (fold {fold+1}): {e}")
+            if verbose:
+                print(f"  Erro no teste de significância (fold {fold+1}): {e}")
             p_values = np.ones(len(X_cols))
             aic = np.nan
             bic = np.nan
@@ -139,46 +147,53 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         resultados['aic'].append(aic)
         resultados['bic'].append(bic)
         
-        print(f" Fold {fold + 1}:")
-        print(f"   Período teste: {dates_test[0].date()} a {dates_test[-1].date()}")
-        print(f"   RMSE: {rmse:.4f}, WAPE: {wape:.2f}%")
+        if verbose:
+            print(f" Fold {fold + 1}:")
+            print(f"   Período teste: {dates_test[0].date()} a {dates_test[-1].date()}")
+            print(f"   RMSE: {rmse:.4f}, WAPE: {wape:.2f}%")
     
-    print("\n" + "=" * 60)
-    print(" RESULTADOS FINAIS DO MODELO")
-    print("=" * 60)
+    if verbose:
+        print("\n" + "=" * 60)
+        print(" RESULTADOS FINAIS DO MODELO")
+        print("=" * 60)
     
     # Métricas médias
-    print(f" Métricas Médias nos {n_splits} folds:")
-    print(f"   RMSE: {np.mean(resultados['rmse']):.4f} (±{np.std(resultados['rmse']):.4f})")
-    print(f"   WAPE: {np.mean(resultados['wape']):.2f}% (±{np.std(resultados['wape']):.2f}%)")
-    print(f"   TWAPE: {np.mean(resultados['twape']):.2f}% (±{np.std(resultados['twape']):.2f}%)")
-    print(f"   AIC: {np.mean(resultados['aic']):.2f} (±{np.std(resultados['aic']):.2f})")
-    print(f"   BIC: {np.mean(resultados['bic']):.2f} (±{np.std(resultados['bic']):.2f})")
-    print(f"   Erro Médio: {np.mean(resultados['erro_medio']):.4f}")
+    if verbose:
+        print(f" Métricas Médias nos {n_splits} folds:")
+        print(f"   RMSE: {np.mean(resultados['rmse']):.4f} (±{np.std(resultados['rmse']):.4f})")
+        print(f"   WAPE: {np.mean(resultados['wape']):.2f}% (±{np.std(resultados['wape']):.2f}%)")
+        print(f"   TWAPE: {np.mean(resultados['twape']):.2f}% (±{np.std(resultados['twape']):.2f}%)")
+        print(f"   AIC: {np.mean(resultados['aic']):.2f} (±{np.std(resultados['aic']):.2f})")
+        print(f"   BIC: {np.mean(resultados['bic']):.2f} (±{np.std(resultados['bic']):.2f})")
+        print(f"   Erro Médio: {np.mean(resultados['erro_medio']):.4f}")
     
     # Coeficientes médios
     coef_medio = np.mean(resultados['coeficientes'], axis=0)
     intercepto_medio = np.mean(resultados['interceptos'])
     p_valores_medio = np.mean(resultados['p_valores'], axis=0)
     
-    print(f"\n Coeficientes do Modelo (média):")
-    print(f"   Intercepto: {intercepto_medio:.6f}")
+    if verbose:
+        print(f"\n Coeficientes do Modelo (média):")
+        print(f"   Intercepto: {intercepto_medio:.6f}")
     
     #  Corrigir para caso de coeficiente único
     if len(X_cols) == 1:
-        print(f"   {X_cols[0]}: {coef_medio:.6f} (p-valor: {p_valores_medio:.4f})")
+        if verbose:
+            print(f"   {X_cols[0]}: {coef_medio:.6f} (p-valor: {p_valores_medio:.4f})")
     else:
         for i, col in enumerate(X_cols):
             significativo = "Ok! " if p_valores_medio[i] < 0.05 else "Atenção! "
-            print(f"   {col}: {coef_medio[i]:.6f} {significativo}(p-valor: {p_valores_medio[i]:.4f})")
+            if verbose:
+                print(f"   {col}: {coef_medio[i]:.6f} {significativo}(p-valor: {p_valores_medio[i]:.4f})")
     
     # Análise de resíduos
     residuos = np.array(resultados['actuals']) - np.array(resultados['predictions'])
     
-    print(f"\n Análise de Resíduos:")
-    print(f"   Média dos resíduos: {np.mean(residuos):.6f}")
-    print(f"   Std dos resíduos: {np.std(residuos):.6f}")
-    print(f"   Resíduos dentro de ±2σ: {np.mean((residuos >= -2*np.std(residuos)) & (residuos <= 2*np.std(residuos))) * 100:.1f}%")
+    if verbose:
+        print(f"\n Análise de Resíduos:")
+        print(f"   Média dos resíduos: {np.mean(residuos):.6f}")
+        print(f"   Std dos resíduos: {np.std(residuos):.6f}")
+        print(f"   Resíduos dentro de ±2σ: {np.mean((residuos >= -2*np.std(residuos)) & (residuos <= 2*np.std(residuos))) * 100:.1f}%")
     
     # Significância geral do modelo
     try:
@@ -186,13 +201,15 @@ def modelo_validacao_cruzada_series_temporais(df, sku,*X_cols, var_dpd,n_splits=
         y_float = y.astype(float)
         model_full = sm.OLS(y_float, X_full).fit()
         
-        print(f"\n Significância Estatística do Modelo (treinado com dados completos):")
-        print(f"   F-statistic: {model_full.fvalue:.2f}")
-        print(f"   Prob (F-statistic): {model_full.f_pvalue:.6f}")
-        print(f"   AIC (dados completos): {model_full.aic:.2f}")
-        print(f"   BIC (dados completos): {model_full.bic:.2f}")
+        if verbose:
+            print(f"\n Significância Estatística do Modelo (treinado com dados completos):")
+            print(f"   F-statistic: {model_full.fvalue:.2f}")
+            print(f"   Prob (F-statistic): {model_full.f_pvalue:.6f}")
+            print(f"   AIC (dados completos): {model_full.aic:.2f}")
+            print(f"   BIC (dados completos): {model_full.bic:.2f}")
     except Exception as e:
-        print(f"  Erro na significância geral do modelo: {e}")
+        if verbose:
+            print(f"  Erro na significância geral do modelo: {e}")
         model_full = None
     
     # Retornar resultados detalhados
