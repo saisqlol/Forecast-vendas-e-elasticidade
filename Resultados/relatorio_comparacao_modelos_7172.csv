@@ -1,2 +1,0 @@
-sku;data_rodagem;modelo_ideal;intercepto_tscv;coef_log_preco_tscv;coef_quarta-feira_tscv;coef_terça-feira_tscv;intercepto_sarimax;coef_log_preco_sarimax;coef_quarta-feira_sarimax;coef_terça-feira_sarimax;AIC_sarimax;BIC_sarimax;AIC_cruzado;BIC_cruzado
-7172;2025-09-30 18:14:23;TSCV;31,418288312838108;-4,908118018375932;0,1332510579273453;0,1229754610323015;4,33182739015353;-4,7286330518022375;0,2621096974566338;0,04107814789611608;1201,6108159477344;1245,7896089615715;746,2767327885263;762,4002283319256
