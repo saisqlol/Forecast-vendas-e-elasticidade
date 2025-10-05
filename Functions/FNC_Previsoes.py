@@ -11,17 +11,19 @@ def gerar_previsoes_e_relatorios(
     resultados_sarimax, 
     sku, 
     caminho_planilha_previsao,
-    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira']
+    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira'],
+    best_sellers_list=None
 ):
     """
-    Gera previsões a partir dos modelos TSCV e SARIMAX e cria um relatório de comparação.
+    Gera previsões a partir dos modelos TSCV e ARIMAX e cria um relatório de comparação.
 
     Args:
         resultados_tscv (dict): Dicionário com os resultados do modelo de validação cruzada.
-        resultados_sarimax (SARIMAXResults): Objeto com os resultados do modelo SARIMAX.
+        resultados_sarimax (SARIMAXResults): Objeto com os resultados do modelo ARIMAX.
         sku (str): O SKU do produto.
         caminho_planilha_previsao (str): Caminho para a planilha Excel com os dados para previsão.
         X_cols_tscv (list): Lista de colunas de features usadas no modelo TSCV.
+        best_sellers_list (list, optional): Lista de SKUs considerados best sellers para aplicar regras de negócio.
 
     Returns:
         tuple: Contendo (df_resultado_previsoes, df_relatorio_modelos).
@@ -57,34 +59,55 @@ def gerar_previsoes_e_relatorios(
     
     for col in X_cols_tscv:
         if col not in df_previsao.columns:
-            raise ValueError(f"Coluna necessária para o modelo TSCV não encontrada: {col}")
+            raise ValueError(f"Coluna necessária para o modelo TSCV não encontrada: '{col}'. Verifique se ela existe no arquivo de preços.")
             
     X_tscv = df_previsao[X_cols_tscv]
     
     log_demanda_tscv = resultados_tscv['intercepto'] + X_tscv.dot(resultados_tscv['coeficientes'])
     df_previsao['previsao_TSCV'] = np.exp(log_demanda_tscv)
     
-    # -- Previsão com Modelo SARIMAX (Iterativa para Robustez) --
-    print(f"Calculando previsões para o SKU {sku} com o modelo SARIMAX...")
+    # -- Previsão com Modelo ARIMAX (Iterativa para Robustez) --
+    print(f"Calculando previsões para o SKU {sku} com o modelo ARIMAX...")
     
     exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_previsao.columns]
     df_previsao_indexed = df_previsao.set_index('Data')
     
     previsoes_sarimax_log = []
-    for data_atual in df_previsao_indexed.index:
-        exog_atual = df_previsao_indexed.loc[[data_atual], exog_cols_sarimax]
-        # Garantir que o índice tenha a frequência correta ('D' para diário)
-        exog_atual.index.freq = 'D'
+    for i in range(len(df_previsao_indexed)):
+        start_date = df_previsao_indexed.index[i]
         
-        previsao_passo = resultados_sarimax.predict(
-            start=data_atual,
-            end=data_atual,
-            exog=exog_atual
-        )
+        try:
+            # Tentativa 1: Prever com exog de 1 dia (o caso mais comum)
+            exog_atual = df_previsao_indexed.loc[[start_date], exog_cols_sarimax].values
+            previsao_passo = resultados_sarimax.predict(
+                start=start_date,
+                end=start_date,
+                exog=exog_atual
+            )
+        except ValueError:
+            # Tentativa 2 (Fallback): Se a primeira falhar, usar o contexto de 2 dias
+            if i == 0:
+                last_train_exog_df = pd.DataFrame(
+                    resultados_sarimax.model.data.exog[-1:], 
+                    columns=exog_cols_sarimax
+                )
+                current_exog_df = df_previsao_indexed.loc[[start_date], exog_cols_sarimax]
+                exog_para_prever = pd.concat([last_train_exog_df, current_exog_df])
+            else:
+                prev_date = df_previsao_indexed.index[i-1]
+                exog_para_prever = df_previsao_indexed.loc[prev_date:start_date, exog_cols_sarimax]
+
+            previsao_passo = resultados_sarimax.predict(
+                start=start_date,
+                end=start_date,
+                exog=exog_para_prever.values
+            )
+        
         previsoes_sarimax_log.append(previsao_passo.iloc[0])
 
-    df_previsao['previsao_SARIMAX_log'] = previsoes_sarimax_log
-    df_previsao['previsao_SARIMAX'] = np.exp(df_previsao['previsao_SARIMAX_log'])
+    df_previsao_indexed['previsao_SARIMAX_log'] = previsoes_sarimax_log
+    df_previsao_indexed['previsao_SARIMAX'] = np.exp(df_previsao_indexed['previsao_SARIMAX_log'])
+    df_previsao = df_previsao_indexed.reset_index()
     
     # --- Lógica para a coluna 'previsao_total' ---
     # 1. Determinar o modelo ideal com base no AIC e RMSE
@@ -121,6 +144,20 @@ def gerar_previsoes_e_relatorios(
         df_previsao['previsao_SARIMAX'] + df_previsao['previsao_TSCV'],
         df_previsao['previsao_total']
     )
+
+    # 4. Aplicar regra de negócio para Best Sellers em promoção
+    if best_sellers_list is not None and str(sku) in best_sellers_list:
+        # Verificar se a coluna 'promocionado' existe no arquivo de preços
+        if 'promocionado' in df_previsao.columns:
+            print(f"  INFO: SKU {sku} é um best seller. Aplicando regra de promoção (x2.5).")
+            condicao_promo = (df_previsao['promocionado'] == 1)
+            df_previsao['previsao_total'] = np.where(
+                condicao_promo,
+                df_previsao['previsao_total'] * 2.5,
+                df_previsao['previsao_total']
+            )
+        else:
+            print("  AVISO: Regra de best seller não aplicada. Coluna 'promocionado' não encontrada no arquivo de preços.")
 
     # Consolidar resultado das previsões
     df_resultado_previsoes = df_previsao[['Data', 'SKU', 'Preco', 'previsao_SARIMAX', 'previsao_TSCV', 'previsao_total']].copy()
@@ -174,7 +211,7 @@ def gerar_relatorio_comparacao(resultados_tscv, resultados_sarimax, sku, X_cols_
 
     # Extrair coeficientes do TSCV de forma segura
     coeficientes_tscv = {}
-    for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira']:
+    for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']:
         try:
             idx = X_cols_tscv.index(col)
             coeficientes_tscv[f'coef_{col.lower()}_tscv'] = resultados_tscv['coeficientes'][idx]
@@ -191,6 +228,7 @@ def gerar_relatorio_comparacao(resultados_tscv, resultados_sarimax, sku, X_cols_
         'coef_log_preco_sarimax': resultados_sarimax.params.get('Log_Preco', np.nan),
         'coef_quarta-feira_sarimax': resultados_sarimax.params.get('Quarta-feira', np.nan),
         'coef_terça-feira_sarimax': resultados_sarimax.params.get('Terça-feira', np.nan),
+        'coef_promocionado_sarimax': resultados_sarimax.params.get('promocionado', np.nan),
         'AIC_sarimax': resultados_sarimax.aic,
         'BIC_sarimax': resultados_sarimax.bic,
         'AIC_cruzado': resultados_tscv['metricas_medias'].get('aic', np.nan),
@@ -204,8 +242,9 @@ def pred_prox_30_dias(
     resultados_sarimax,
     df_venda,
     sku,
-    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira'],
-    gerar_grafico=True
+    X_cols_tscv=['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado'],
+    gerar_grafico=True,
+    best_sellers_list=None
 ):
     """
     Prevê a demanda para os próximos 30 dias com base no último preço conhecido
@@ -218,6 +257,7 @@ def pred_prox_30_dias(
         sku (str): O SKU do produto.
         X_cols_tscv (list): Lista de colunas de features usadas no modelo TSCV.
         gerar_grafico (bool): Se True, gera e salva um gráfico da previsão.
+        best_sellers_list (list, optional): Lista de SKUs considerados best sellers para aplicar regras de negócio.
 
     Returns:
         pd.DataFrame: DataFrame com as previsões para os próximos 30 dias.
@@ -237,20 +277,25 @@ def pred_prox_30_dias(
 
     datas_futuras = pd.date_range(start=ultima_data + pd.Timedelta(days=1), periods=30, freq='D')
     
-    # Lógica para determinar os preços futuros
+    # Lógica para determinar os preços e status de promoção futuros
     precos_futuros = []
+    promocoes_futuras = []
     for data_futura in datas_futuras:
         data_passada = data_futura - pd.Timedelta(days=30)
         if data_passada in df_venda.index:
             preco_usado = df_venda.loc[data_passada, 'Preco']
+            promocao_usada = df_venda.loc[data_passada, 'promocionado']
         else:
             preco_usado = ultimo_preco  # Fallback
+            promocao_usada = 0 # Assumir que não está em promoção como fallback
         precos_futuros.append(preco_usado)
+        promocoes_futuras.append(promocao_usada)
 
     df_futuro = pd.DataFrame({
         'Data': datas_futuras,
         'SKU': sku,
-        'Preco': precos_futuros
+        'Preco': precos_futuros,
+        'promocionado': promocoes_futuras
     })
 
     # 2. Gerar previsões para os modelos
@@ -263,11 +308,11 @@ def pred_prox_30_dias(
     log_demanda_tscv = resultados_tscv['intercepto'] + X_tscv.dot(resultados_tscv['coeficientes'])
     df_futuro['previsao_TSCV'] = np.exp(log_demanda_tscv)
 
-    # Previsão SARIMAX (usando .get_forecast() para projeção futura contínua)
-    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_futuro.columns]
+    # Previsão ARIMAX (usando .get_forecast() para projeção futura contínua)
+    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado'] if col in df_futuro.columns]
     exog_futuro = df_futuro.set_index('Data')[exog_cols_sarimax]
-    # Garantir que o índice tenha a frequência correta ('D' para diário)
-    exog_futuro.index.freq = 'D'
+    # Reamostrar para garantir a frequência diária ('D')
+    exog_futuro = exog_futuro.asfreq('D')
 
     # .get_forecast() é o método mais robusto para previsões dinâmicas out-of-sample.
     # Ele projeta o futuro passo a passo, usando a previsão anterior como input para a próxima.
@@ -304,6 +349,17 @@ def pred_prox_30_dias(
         df_futuro['previsao_SARIMAX'] + df_futuro['previsao_TSCV'],
         df_futuro['previsao_total']
     )
+
+    # 4. Aplicar regra de negócio para Best Sellers em promoção
+    if best_sellers_list is not None and str(sku) in best_sellers_list:
+        if 'promocionado' in df_futuro.columns:
+            print(f"  INFO: SKU {sku} é um best seller. Aplicando regra de promoção (x2.5) na previsão futura.")
+            condicao_promo = (df_futuro['promocionado'] == 1)
+            df_futuro['previsao_total'] = np.where(
+                condicao_promo,
+                df_futuro['previsao_total'] * 2.5,
+                df_futuro['previsao_total']
+            )
 
     if gerar_grafico:
         print("  Gerando gráfico de previsão futura...")
@@ -385,31 +441,51 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
         dados_sku_precos['Terça-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 1).astype(int)
 
         # Previsão TSCV (pode ser feita em lote)
-        X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira']
+        X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
         X_tscv = dados_sku_precos[X_cols_tscv]
         log_demanda_tscv = modelo_tscv_carregado['intercepto'] + X_tscv.dot(modelo_tscv_carregado['coeficientes'])
         dados_sku_precos['previsao_TSCV'] = np.exp(log_demanda_tscv)
 
-        # Previsão SARIMAX (deve ser feita de forma iterativa para modelos carregados)
+        # Previsão SARIMAX (iterativa e com contexto de 2 dias para robustez)
         previsoes_sarimax_log = []
         df_previsao_indexed = dados_sku_precos.set_index('Data')
-        exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_previsao_indexed.columns]
+        exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado'] if col in df_previsao_indexed.columns]
 
-        for data_atual in df_previsao_indexed.index:
-            exog_atual = df_previsao_indexed.loc[[data_atual], exog_cols_sarimax]
-            # Garantir que o índice tenha a frequência correta ('D' para diário)
-            exog_atual.index.freq = 'D'
+        for i in range(len(df_previsao_indexed)):
+            start_date = df_previsao_indexed.index[i]
             
-            # Faz a previsão para um único passo
-            previsao_passo = modelo_sarimax_carregado.predict(
-                start=data_atual,
-                end=data_atual,
-                exog=exog_atual
-            )
+            try:
+                # Tentativa 1: Prever com exog de 1 dia
+                exog_atual = df_previsao_indexed.loc[[start_date], exog_cols_sarimax].values
+                previsao_passo = modelo_sarimax_carregado.predict(
+                    start=start_date,
+                    end=start_date,
+                    exog=exog_atual
+                )
+            except ValueError:
+                # Tentativa 2 (Fallback): Usar o contexto de 2 dias
+                if i == 0:
+                    last_train_exog_df = pd.DataFrame(
+                        modelo_sarimax_carregado.model.data.exog[-1:], 
+                        columns=exog_cols_sarimax
+                    )
+                    current_exog_df = df_previsao_indexed.loc[[start_date], exog_cols_sarimax]
+                    exog_para_prever = pd.concat([last_train_exog_df, current_exog_df])
+                else:
+                    prev_date = df_previsao_indexed.index[i-1]
+                    exog_para_prever = df_previsao_indexed.loc[prev_date:start_date, exog_cols_sarimax]
+
+                previsao_passo = modelo_sarimax_carregado.predict(
+                    start=start_date,
+                    end=start_date,
+                    exog=exog_para_prever.values
+                )
+            
             previsoes_sarimax_log.append(previsao_passo.iloc[0])
 
-        dados_sku_precos['previsao_SARIMAX_log'] = previsoes_sarimax_log
-        dados_sku_precos['previsao_SARIMAX'] = np.exp(dados_sku_precos['previsao_SARIMAX_log'])
+        df_previsao_indexed['previsao_SARIMAX_log'] = previsoes_sarimax_log
+        df_previsao_indexed['previsao_SARIMAX'] = np.exp(df_previsao_indexed['previsao_SARIMAX_log'])
+        dados_sku_precos = df_previsao_indexed.reset_index()
         
         previsoes_finais.append(dados_sku_precos)
 
@@ -419,7 +495,7 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
 
     # 4. Consolidar e retornar
     df_final = pd.concat(previsoes_finais, ignore_index=True)
-    colunas_resultado = ['Data', 'SKU', 'Preco', 'previsao_TSCV', 'previsao_SARIMAX']
+    colunas_resultado = ['Data', 'SKU', 'Preco', 'previsao_TSCV', 'previsao_SARIMAX', 'promocionado']
     
     print("\n--- PREVISÃO CONCLUÍDA ---")
     return df_final[colunas_resultado]

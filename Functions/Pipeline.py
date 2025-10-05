@@ -49,7 +49,7 @@ def pipeline_completa_skus(df_produtos, n_splits=10):
                 continue
             
             # --- Modelo TSCV ---
-            X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira']
+            X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
             resultados_tscv = modelo_validacao_cruzada_series_temporais(
                 Venda, sku, *X_cols_tscv, var_dpd='Log_Demanda', n_splits=n_splits, verbose=False
             )
@@ -58,9 +58,9 @@ def pipeline_completa_skus(df_produtos, n_splits=10):
             print(f"    Coeficientes: {resultados_tscv['coeficientes']}")
 
             # --- Modelo ARIMAX ---
-            exog_vars_arimax = ['Log_Preco', 'Quarta-feira', 'Terça-feira']
+            exog_vars_arimax = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
             best_order, best_seasonal_order, best_trend = encontrar_melhores_parametros_sarimax(
-                Venda, sku, *exog_vars_arimax, endog_var='Log_Demanda', verbose=False
+                Venda, sku, exog_vars=exog_vars_arimax, endog_var='Log_Demanda', verbose=False
             )
             resultado_sarimax = modelo_sarimax(
                 Venda, sku, *exog_vars_arimax, endog_var='Log_Demanda',

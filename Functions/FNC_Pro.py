@@ -4,6 +4,14 @@ import os
 import numpy as np
 
 
+# Pega a lista dos produtos top 10 em cada categoria 
+
+def best_sellers(base_selecionada):
+    df = pd.read_excel(base_selecionada)
+    df = df[['SKU']]
+
+    return df
+
 def produtos_selecionados(base_selecionada):
     df = pd.read_excel(base_selecionada)
     lista_de_valores = df.iloc[:, 0].astype(str).tolist()
@@ -152,13 +160,12 @@ def Base_venda(sku):
 
     condicao = (df['Log_Demanda'] == 0) | (np.isinf(df['Log_Demanda']))
     df.loc[condicao, 'Log_Demanda'] = df.loc[condicao, 'Log_Demanda_7D']
-    # Calcular desconto percentual
-    df['Desconto_Percentual'] = (df['Preco_Listado'] - df['Preco']) / df['Preco_Listado'] * 100
-    # Coluna promocionado_25 (desconto >= 25%)
-    df['promocionado_25'] = (df['Desconto_Percentual'] >= 25).astype(int)
-    # Coluna promocionado_50 (desconto >= 50%)
-    df['promocionado_50'] = (df['Desconto_Percentual'] >= 50).astype(int)
-    df = df.drop(columns=['Dia_Semana','Med_Preco_7_Dia','Med_Demanda_7_Dia','Desconto_Percentual'])
+    
+    # Criar a coluna 'promocionado' com base no desvio do preço em relação à média móvel de 7 dias
+    # É considerado promocionado se o preço for 10% ou mais abaixo da média dos últimos 7 dias.
+    df['promocionado'] = (df['Preco'] <= df['Med_Preco_7_Dia'] * 0.90).astype(int)
+    
+    df = df.drop(columns=['Dia_Semana','Med_Preco_7_Dia','Med_Demanda_7_Dia'])
 
     # 1. Filtrar a partir da primeira data com venda para garantir que a série comece com atividade
     if not df.empty and (df['Demanda'] > 0).any():

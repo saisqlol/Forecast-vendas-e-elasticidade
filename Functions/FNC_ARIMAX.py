@@ -149,22 +149,22 @@ def modelo_sarimax(df, sku, *exog_vars, endog_var='Log_Demanda', order=(1, 1, 1)
             print(f"Ocorreu um erro ao treinar o modelo SARIMAX para o SKU {sku}: {e}")
         return None
 
-def encontrar_melhores_parametros_sarimax(df, sku, *exog_vars, endog_var='Log_Demanda', verbose=True):
+def encontrar_melhores_parametros_sarimax(df, sku, exog_vars, endog_var='Log_Demanda', verbose=True):
     """
-    Usa auto_arima para encontrar os melhores parâmetros (p,d,q)(P,D,Q,s) para um modelo SARIMAX.
+    Usa auto_arima para encontrar os melhores parâmetros (p,d,q) para um modelo ARIMAX.
 
     Args:
         df (pd.DataFrame): DataFrame contendo os dados de vendas.
         sku (str): O SKU do produto a ser modelado.
-        *exog_vars: Nomes das colunas a serem usadas como variáveis exógenas.
+        exog_vars (list): Lista de nomes de colunas a serem usadas como variáveis exógenas.
         endog_var (str): Nome da coluna a ser usada como variável endógena.
         verbose (bool): Se True, imprime logs detalhados.
 
     Returns:
-        tuple: Contendo (order, seasonal_order) ótimos para o modelo.
+        tuple: Contendo (order, seasonal_order, trend) ótimos para o modelo.
     """
     if verbose:
-        print(f"\n--- Buscando Melhores Parâmetros SARIMAX para SKU: {sku} ---")
+        print(f"\n--- Buscando Melhores Parâmetros ARIMAX para SKU: {sku} ---")
     
     # Preparar os dados da mesma forma que no modelo principal
     df_resampled = df.asfreq('D')
