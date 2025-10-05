@@ -47,6 +47,7 @@ O fluxo de trabalho é dividido em duas etapas principais: **Treino** e **Teste/
 
 - **Filtragem:** A função `lista_produtos` seleciona os SKUs a serem processados com base nos filtros definidos (Classificação, Ativo, ou uma lista específica de SKUs).
 - **Loop de Treinamento:** Para cada SKU, o `pipeline_completa_skus` executa os seguintes passos:
+    - **Verificação se o produto é um best seller ou não:** A função `best_sellers` busca a base de todos os produtos considerados best sellers.
     - **Coleta de Dados:** A função `Base_venda` busca o histórico de vendas.
     - **Treino do TSCV:** O modelo de validação cruzada é treinado.
     - **Treino do ARIMAX:** A função `encontrar_melhores_parametros_sarimax` utiliza a biblioteca **`pmdarima`** para realizar uma busca automática (`auto_arima`) pela melhor configuração de parâmetros (p, q). Ela é configurada para construir um modelo estável (com `d=0` e `seasonal=False`) e depois o treina.
