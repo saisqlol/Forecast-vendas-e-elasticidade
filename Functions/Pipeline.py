@@ -48,6 +48,9 @@ def pipeline_completa_skus(df_produtos, n_splits=10):
                 skus_com_erro += 1
                 continue
             
+            # Adicionar verificação para garantir a consistência dos dados
+            print(f"  Dados carregados para o SKU {sku}: {len(Venda)} registros de {Venda.index.min().date()} a {Venda.index.max().date()}")
+
             # --- Modelo TSCV ---
             X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
             resultados_tscv = modelo_validacao_cruzada_series_temporais(

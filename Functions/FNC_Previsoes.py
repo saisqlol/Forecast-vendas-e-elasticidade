@@ -35,9 +35,9 @@ def gerar_previsoes_e_relatorios(
     # Ler e preparar dados de entrada
     df_previsao_completo = pd.read_excel(caminho_planilha_previsao)
     
-    # Garantir que a coluna SKU seja do mesmo tipo (string) para a comparação
-    df_previsao_completo['SKU'] = df_previsao_completo['SKU'].astype(str)
-    sku = str(sku) # Garantir que o SKU de entrada também seja string
+    # Garantir que a coluna SKU seja do mesmo tipo (string) e sem espaços extras
+    df_previsao_completo['SKU'] = df_previsao_completo['SKU'].astype(str).str.strip()
+    sku = str(sku).strip() # Garantir que o SKU de entrada também seja limpo
     
     # Filtrar o DataFrame de previsão para conter apenas o SKU em análise
     df_previsao = df_previsao_completo[df_previsao_completo['SKU'] == sku].copy()
@@ -412,7 +412,7 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
         print(f"ERRO: Arquivo de preços não encontrado - {e}")
         return pd.DataFrame()
 
-    df_precos['SKU'] = df_precos['SKU'].astype(str)
+    df_precos['SKU'] = df_precos['SKU'].astype(str).str.strip()
     skus_para_prever = df_precos['SKU'].unique()
     print(f"Encontrados {len(skus_para_prever)} SKUs no arquivo de preços.")
 
@@ -441,6 +441,7 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
         dados_sku_precos['Terça-feira'] = (dados_sku_precos['Data'].dt.dayofweek == 1).astype(int)
 
         # Previsão TSCV (pode ser feita em lote)
+        # Garantir que estamos usando todas as colunas com as quais o modelo foi treinado
         X_cols_tscv = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
         X_tscv = dados_sku_precos[X_cols_tscv]
         log_demanda_tscv = modelo_tscv_carregado['intercepto'] + X_tscv.dot(modelo_tscv_carregado['coeficientes'])
@@ -449,7 +450,8 @@ def prever_demanda_com_modelos_salvos(caminho_pasta_modelos, caminho_planilha_pr
         # Previsão SARIMAX (iterativa e com contexto de 2 dias para robustez)
         previsoes_sarimax_log = []
         df_previsao_indexed = dados_sku_precos.set_index('Data')
-        exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado'] if col in df_previsao_indexed.columns]
+        # Garantir que estamos usando todas as colunas com as quais o modelo foi treinado
+        exog_cols_sarimax = ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado']
 
         for i in range(len(df_previsao_indexed)):
             start_date = df_previsao_indexed.index[i]
