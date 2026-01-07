@@ -174,9 +174,11 @@ def Base_venda(sku):
         print(f"SKU {sku}: Histórico de dados ajustado para começar em {primeira_venda_data.date()}, o primeiro dia com vendas.")
 
     # 2. Se, após o ajuste, mais de 50% dos dados da coluna Demanda for igual a 0, filtra o df
-    if not df.empty and (df['Demanda'] == 0).sum() / len(df) > 0.5:
-        print(f"SKU {sku}: Mais de 50% da demanda restante é 0. Filtrando para manter apenas dias com vendas.")
-        df = df[df['Demanda'] != 0]
+    # Comentado em 06/01/2026: Esta lógica é muito agressiva para o cálculo de VMD,
+    # pois VMD deve considerar os dias com venda zero na média. Removê-los distorce o resultado.
+    # if not df.empty and (df['Demanda'] == 0).sum() / len(df) > 0.5:
+    #     print(f"SKU {sku}: Mais de 50% da demanda restante é 0. Filtrando para manter apenas dias com vendas.")
+    #     df = df[df['Demanda'] != 0]
         
     return df
 

@@ -69,7 +69,8 @@ def gerar_previsoes_e_relatorios(
     # -- Previsão com Modelo ARIMAX (Iterativa para Robustez) --
     print(f"Calculando previsões para o SKU {sku} com o modelo ARIMAX...")
     
-    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira'] if col in df_previsao.columns]
+    # Garantir que o exog para o ARIMAX tenha as mesmas colunas usadas no treinamento
+    exog_cols_sarimax = [col for col in ['Log_Preco', 'Quarta-feira', 'Terça-feira', 'promocionado'] if col in df_previsao.columns]
     df_previsao_indexed = df_previsao.set_index('Data')
     
     previsoes_sarimax_log = []
