@@ -228,7 +228,7 @@ def encontrar_melhores_parametros_sarimax(df, sku, exog_vars, endog_var='Log_Dem
         return (1, 1, 1), (1, 1, 1, 7), 'c'
 
 
-def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_days=60):
+def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_days=60, verbose=False, clip_factor=3):
     """
     Calcula o VMD realizado e prevê o VMD para o dia seguinte e para a próxima semana.
 
@@ -238,6 +238,8 @@ def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_da
         sku (str): O SKU do produto.
         exog_vars (list): Lista com o nome das variáveis exógenas utilizadas no modelo.
         window_days (int): Número de dias para calcular o VMD (padrão 60).
+        verbose (bool): Se True, imprime informações de debug sobre as previsões.
+        clip_factor (float): Fator multiplicador para limitar previsões acima do histórico (padrão 3).
 
     Returns:
         dict: Um dicionário com o VMD realizado e os VMDs previstos.
@@ -265,7 +267,7 @@ def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_da
             'VMD_Previsto_7D': np.nan,
             'Status': 'Erro: Sem dados de demanda para o período solicitado.'
         }
-
+    
     vmd_realizado = demanda_ultimos_window.mean()
 
     # --- 2. Preparar DataFrame para Previsão (próximos 7 dias) ---
@@ -282,8 +284,8 @@ def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_da
     df_futuro['Dia_Semana'] = df_futuro.index.day_name(locale='pt_BR')
     dias_da_semana_dummies = pd.get_dummies(df_futuro['Dia_Semana'], dtype=int)
     # Garante que todas as colunas de dias da semana possíveis existam
-    dias_possiveis = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo']
-    for dia in dias_possiveis:
+    dias_poss_veis = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo']
+    for dia in dias_poss_veis:
         if dia not in dias_da_semana_dummies.columns:
             dias_da_semana_dummies[dia] = 0
     df_futuro = pd.concat([df_futuro, dias_da_semana_dummies], axis=1)
@@ -302,7 +304,7 @@ def gerar_previsoes_vmd(resultado_modelo, df_original, sku, exog_vars, window_da
     # --- 3. Gerar Previsões de Demanda ---
     previsoes_log = resultado_modelo.get_forecast(steps=7, exog=exog_futuro)
     previsoes_demanda = np.exp(previsoes_log.predicted_mean).round() # Arredonda para o inteiro mais próximo
-    
+
     # Garantir que a previsão não seja negativa
     previsoes_demanda[previsoes_demanda < 0] = 0
 

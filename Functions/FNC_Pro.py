@@ -80,9 +80,9 @@ def configurar_credenciais_bq(arquivo_json):
 
 def Base_venda(sku):
     query =f"""
-    SELECT Data, SKU, Preco_Listado, Med_Preco_Dia AS Preco, Qtd_Vendida AS Demanda 
-    FROM `epoca-230913.VTEX.Extracao_Base_Modelo` 
-    WHERE sku = '{sku}' AND EXTRACT(YEAR FROM Data) >= EXTRACT(YEAR FROM CURRENT_DATE())-2
+    SELECT Data, SKU, Preco_Listado,  Preco,  Demanda
+    FROM `epoca-230913.VTEX.Extracao_Base_Modelo_VMD`  
+    WHERE sku = '{sku}' AND Data >= '2024-09-22' AND Venda_Considerar = 1
     """
     client = bigquery.Client()
     query_job = client.query(query)
@@ -94,6 +94,7 @@ def Base_venda(sku):
     
     # Converter Data
     df['Data'] = pd.to_datetime(df['Data'])
+    df['Preco'] = df['Preco'].astype(float)
     df['Demanda'] = df['Demanda'].astype(float)
 
     # Remover duplicatas de índice
@@ -172,7 +173,7 @@ def Base_venda(sku):
         primeira_venda_data = df[df['Demanda'] > 0].index.min()
         df = df[df.index >= primeira_venda_data]
         print(f"SKU {sku}: Histórico de dados ajustado para começar em {primeira_venda_data.date()}, o primeiro dia com vendas.")
-
+    
     # 2. Se, após o ajuste, mais de 50% dos dados da coluna Demanda for igual a 0, filtra o df
     # Comentado em 06/01/2026: Esta lógica é muito agressiva para o cálculo de VMD,
     # pois VMD deve considerar os dias com venda zero na média. Removê-los distorce o resultado.
@@ -180,5 +181,74 @@ def Base_venda(sku):
     #     print(f"SKU {sku}: Mais de 50% da demanda restante é 0. Filtrando para manter apenas dias com vendas.")
     #     df = df[df['Demanda'] != 0]
         
+    return df
+
+    # print(f"SKU {sku} sem dados retornados do BigQuery")
+    # return pd.DataFrame(), False
+
+    # --- Agregação para garantir datas únicas ---
+    # Converte a data e agrupa os dados para garantir que cada dia seja uma única linha.
+    # Isso resolve o problema de 'duplicate labels' ao somar a demanda e tirar a média do preço.
+    df['Data'] = pd.to_datetime(df['Data'])
+    if df.duplicated(subset=['Data']).any():
+        print(f"SKU {sku}: Encontradas múltiplas entradas para a mesma data. Agregando os dados diários.")
+        df = df.groupby(pd.Grouper(key='Data', freq='D')).agg({
+            'SKU': 'first',
+            'Preco_Listado': 'mean',
+            'Preco': 'mean',
+            'Demanda': 'sum',
+            'Estoque': 'last',
+            'Ruptura': 'last',
+            'Venda_Considerar': 'max'
+        }).reset_index()
+        # O groupby pode criar NaNs para SKUs em dias agregados sem dados, preenchendo-os.
+        df['SKU'] = df['SKU'].fillna(method='ffill').fillna(method='bfill')
+    
+    # --- Conversão de Tipos e Ordenação ---
+    df['Data'] = pd.to_datetime(df['Data'])
+    df['Demanda'] = df['Demanda'].astype(float)
+    df['Ruptura'] = pd.to_numeric(df['Ruptura'], errors='coerce').fillna(0).astype(int)
+    df['Venda_Considerar'] = pd.to_numeric(df['Venda_Considerar'], errors='coerce').fillna(0).astype(int)
+    df.sort_values('Data', inplace=True)
+    
+    # --- Feature Engineering e Processamento ---
+    df['Log_Preco'] = np.log(df['Preco'].clip(lower=0.01))
+    df['Log_Demanda'] = np.log(df['Demanda'].clip(lower=0.01))
+    
+    df['Med_Demanda_7_Dia'] = df['Demanda'].transform(lambda x: x.rolling(window=7, min_periods=1).mean())
+    df['Log_Demanda_7D'] = np.log(df['Med_Demanda_7_Dia'].clip(lower=0.01))
+    
+    condicao_problema = np.isinf(df['Log_Demanda']) | np.isnan(df['Log_Demanda'])
+    if condicao_problema.any():
+        df.loc[condicao_problema, 'Log_Demanda'] = df.loc[condicao_problema, 'Log_Demanda_7D']
+    
+    df.set_index('Data', inplace=True)
+    df.sort_index(inplace=True)
+
+    df['Dia_Semana'] = df.index.day_name(locale='pt_BR')
+    df['Black_Friday'] = ((df.index.month == 11) & (df.index.day >= 28) & (df.index.day <= 30)).astype(int)
+    
+    dias_da_semana_dummies = pd.get_dummies(df['Dia_Semana'], dtype=int)
+    df = pd.concat([df, dias_da_semana_dummies], axis=1)
+
+    df['Med_Preco_7_Dia'] = df['Preco'].transform(lambda x: x.rolling(window=7, min_periods=1).mean())
+    df['promocionado'] = (df['Preco'] <= df['Med_Preco_7_Dia'] * 0.90).astype(int)
+    
+    colunas_para_remover = [
+        'Dia_Semana', 'Med_Preco_7_Dia', 'Med_Demanda_7_Dia', 'Log_Demanda_7D',
+        'Estoque', 'Ruptura', 'Venda_Considerar'
+    ]
+
+    # Remover colunas auxiliares
+    df = df.drop(columns=[col for col in colunas_para_remover if col in df.columns])
+
+    # Comentado em 08/01/2026: Esta lógica removia os dias com venda zero do início do período,
+    # o que distorcia o cálculo do VMD (ex: dividia por 50 dias em vez de 60).
+    # O VMD correto deve sempre considerar o período completo.
+    # if not df.empty and (df['Demanda'] > 0).any():
+    #     primeira_venda_data = df[df['Demanda'] > 0].index.min()
+    #     df = df[df.index >= primeira_venda_data]
+    #     # print(f"SKU {sku}: Histórico de dados ajustado para começar em {primeira_venda_data.date()}, o primeiro dia com vendas.")
+
     return df
 

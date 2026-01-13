@@ -6,8 +6,16 @@ import json
 from statsmodels.iolib.smpickle import save_pickle
 
 # --- 1. Configurar o Caminho do Projeto ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, '..'))
+# Define o caminho raiz do projeto de forma robusta
+try:
+    # Em modo de script, __file__ está definido
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(current_dir, '..'))
+except NameError:
+    # Em modo interativo, __file__ não está definido, usa o diretório atual
+    # Certifique-se de que o terminal/notebook está na raiz do projeto
+    project_root = os.getcwd()
+
 if project_root not in sys.path:
     sys.path.append(project_root)
 
@@ -89,19 +97,10 @@ def pipeline_treinamento_de_modelos(lista_skus, credenciais_path, modelos_output
 
 if __name__ == '__main__':
     caminho_credenciais = r'G:/Drives compartilhados/Bases BI/epoca-230913-b478a9a0dd4c.json'
-    skus_para_treinar = ['88264','52774','83626','26619','25357','30713','36954','48639','22852','36950','76175','36947','25317','129572','4012','36949','55454','110006','30712','23756']
+    skus_para_treinar = ['88264','52774']
 
-    # --- Define os caminhos de forma robusta para funcionar em modo script e interativo ---
-    try:
-        # Modo Script: __file__ está definido. Pega o caminho do script e sobe um nível.
-        current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root_main = os.path.abspath(os.path.join(current_script_dir, '..'))
-    except NameError:
-        # Modo Interativo: __file__ não está definido. Usa o diretório de trabalho atual (CWD).
-        # Garanta que seu terminal VS Code está na raiz do projeto para isso funcionar.
-        project_root_main = os.getcwd()
-
+    # A raiz do projeto já foi definida no início do script
     # Pasta para salvar os modelos, dentro da raiz do projeto
-    pasta_modelos = os.path.join(project_root_main, 'Modelos_VMD')
+    pasta_modelos = os.path.join(project_root, 'Modelos_VMD')
 
     pipeline_treinamento_de_modelos(skus_para_treinar, caminho_credenciais, pasta_modelos)

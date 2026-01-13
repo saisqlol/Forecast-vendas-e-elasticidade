@@ -59,7 +59,7 @@ def pipeline_previsao_vmd(lista_skus, credenciais_path, modelos_input_dir):
                 print(f"Não foi possível obter dados de venda para o SKU {sku}.")
                 resultados_finais.append({'SKU': sku, 'Status': 'Erro ao obter dados'})
                 continue
-            
+
             # Gerar as previsões de VMD
             previsoes = gerar_previsoes_vmd(modelo_carregado, df_venda, sku, exog_vars)
             resultados_finais.append(previsoes)
