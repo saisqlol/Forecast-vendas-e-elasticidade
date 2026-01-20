@@ -12,6 +12,9 @@ Graficos/previsao_30_dias_sku_29207.png
 Graficos/previsao_30_dias_sku_15347.png
 Graficos/previsao_30_dias_sku_3913.png
 Graficos/previsao_30_dias_sku_2960.png
+VMD/SKUs_Ativos.xlsx
+
+previsoes_vmd.csv
 
 # Ignorar todos os arquivos dentro da pasta Modelos
 Modelos/*

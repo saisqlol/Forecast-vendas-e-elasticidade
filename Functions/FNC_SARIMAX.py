@@ -156,13 +156,13 @@ def modelo_sarimax(df, sku, *exog_vars, endog_var='Log_Demanda', order=(1, 1, 1)
 
 def encontrar_melhores_parametros_sarimax(df, sku, exog_vars, endog_var='Log_Demanda', verbose=True):
     """
-    Usa auto_arima para encontrar os melhores parâmetros (p,d,q)(P,D,Q,s) para um modelo SARIMAX.
-    Esta função é otimizada para encontrar um modelo de regressão com erros SARIMA,
-    que é mais estável para previsão quando se tem variáveis exógenas fortes.
+    Testa uma lista pré-definida de parâmetros SARIMAX e retorna o melhor conjunto
+    com base no critério de informação AIC (Akaike Information Criterion).
+    Esta abordagem é muito mais rápida do que uma busca em grade (Grid Search) ou auto_arima.
     """
     if verbose:
-        print(f"\n--- Buscando Melhores Parâmetros SARIMAX para SKU: {sku} ---")
-    
+        print(f"\n--- Testando Parâmetros SARIMAX Pré-definidos para SKU: {sku} ---")
+
     # Preparar os dados da mesma forma que no modelo principal
     df_resampled = df.asfreq('D')
     for col in exog_vars:
@@ -175,56 +175,55 @@ def encontrar_melhores_parametros_sarimax(df, sku, exog_vars, endog_var='Log_Dem
     endog = df_resampled[endog_var].dropna()
     exog_list = [var for var in exog_vars if var in df_resampled.columns]
     
-    if not exog_list:
-        exog = None
-    else:
+    exog = None
+    if exog_list:
         # Alinhar exog com endog
         exog = df_resampled.loc[endog.index, exog_list]
 
-    try:
-        if verbose:
-            print("\n--- Iniciando busca de parâmetros com auto_arima ---")
-        
-        # auto_arima vai testar diferentes combinações de p, d, q, P, D, Q
-        auto_model = pm.auto_arima(
-            y=endog,
-            X=exog,
-            start_p=1, start_q=1,
-            test='adf',       
-            max_p=3, max_q=3,
-            m=7,              # Sazonalidade semanal
-            d=None,           # Deixar o auto_arima encontrar a melhor ordem de diferenciação
-            seasonal=True,    # Ativar a busca por parâmetros sazonais
-            start_P=1, start_Q=1,
-            max_P=2, max_Q=2,
-            D=None,           # Deixar o auto_arima encontrar a melhor ordem de diferenciação sazonal
-            trace=verbose,
-            error_action='ignore',  
-            suppress_warnings=True, 
-            stepwise=True,
-            n_jobs=-1
-        )
+    # Lista de 5 configurações de parâmetros comumente usadas para dados de varejo
+    # com sazonalidade semanal (m=7).
+    parametros_candidatos = [
+        {'order': (1, 1, 1), 'seasonal_order': (1, 1, 1, 7), 'trend': 'c'},
+        {'order': (1, 1, 0), 'seasonal_order': (1, 1, 0, 7), 'trend': 'c'},
+        {'order': (0, 1, 1), 'seasonal_order': (0, 1, 1, 7), 'trend': 'c'},
+        {'order': (1, 1, 1), 'seasonal_order': (0, 1, 1, 7), 'trend': 'c'},
+        {'order': (0, 1, 1), 'seasonal_order': (1, 1, 0, 7), 'trend': 'c'}
+    ]
 
-        if verbose:
-            print(auto_model.summary())
-        
-        best_order = auto_model.order
-        best_seasonal_order = auto_model.seasonal_order
-        
-        # O auto_arima pode incluir um termo de tendência/intercepto automaticamente.
-        # Vamos extrair se ele foi adicionado para passar para o nosso modelo final.
-        trend_term = None
-        if auto_model.with_intercept():
-            trend_term = 'c'
-        
-        if verbose:
-            print(f"Melhores parâmetros encontrados: order={best_order}, seasonal_order={best_seasonal_order}, trend='{trend_term}'")
-        return best_order, best_seasonal_order, trend_term
+    melhor_aic = np.inf
+    melhores_parametros = {}
 
-    except Exception as e:
+    for params in parametros_candidatos:
+        try:
+            modelo = sm.tsa.statespace.SARIMAX(
+                endog,
+                exog=exog,
+                order=params['order'],
+                seasonal_order=params['seasonal_order'],
+                trend=params['trend'],
+                enforce_stationarity=False,
+                enforce_invertibility=False
+            )
+            resultado = modelo.fit(disp=False)
+            
+            if resultado.aic < melhor_aic:
+                melhor_aic = resultado.aic
+                melhores_parametros = params
+
+        except Exception as e:
+            # Se um conjunto de parâmetros falhar, apenas continua para o próximo
+            if verbose:
+                print(f"  - Falha ao testar {params}: {e}")
+            continue
+
+    if melhores_parametros:
         if verbose:
-            print(f"Ocorreu um erro ao buscar os parâmetros para o SKU {sku}: {e}")
-            print("Retornando para os parâmetros padrão (1,1,1)(1,1,1,7) e com trend 'c'.")
+            print(f"Melhor configuração encontrada: {melhores_parametros} (AIC: {melhor_aic:.2f})")
+        return melhores_parametros['order'], melhores_parametros['seasonal_order'], melhores_parametros['trend']
+    else:
+        # Fallback para parâmetros padrão se todos falharem
+        if verbose:
+            print("Nenhum modelo convergiu. Retornando para os parâmetros padrão.")
         return (1, 1, 1), (1, 1, 1, 7), 'c'
 
 

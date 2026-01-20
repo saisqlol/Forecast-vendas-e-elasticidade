@@ -4,6 +4,8 @@ import pandas as pd
 import warnings
 import json
 from statsmodels.iolib.smpickle import save_pickle
+from joblib import Parallel, delayed
+import multiprocessing
 
 # --- 1. Configurar o Caminho do Projeto ---
 # Define o caminho raiz do projeto de forma robusta
@@ -25,14 +27,71 @@ from Functions.FNC_SARIMAX import encontrar_melhores_parametros_sarimax, modelo_
 
 warnings.filterwarnings("ignore")
 
+def treinar_modelo_sku(sku, modelos_output_dir, exog_vars):
+    """
+    Função de worker para treinar e salvar o modelo para um único SKU.
+    """
+    # Esta função será executada em um processo separado para cada SKU.
+    # print(f"--- Processando SKU: {sku} ---")
+    
+    df_venda = Base_venda(sku)
+
+    if df_venda is None or df_venda.empty or len(df_venda) < 60:
+        # Retorna o status para o sumário final, sem poluir o log.
+        return sku, "Dados insuficientes"
+
+    try:
+        best_order, best_seasonal_order, trend = encontrar_melhores_parametros_sarimax(
+            df_venda, sku, exog_vars, verbose=False # Verbose desativado para saídas mais limpas
+        )
+    except Exception as e:
+        print(f"SKU {sku}: Erro fatal ao encontrar parâmetros: {e}")
+        return sku, f"Erro nos parâmetros: {e}"
+        
+    resultado_modelo = modelo_sarimax(
+        df_venda, sku, *exog_vars, 
+        order=best_order, 
+        seasonal_order=best_seasonal_order, 
+        trend=trend,
+        verbose=False
+    )
+
+    if resultado_modelo:
+        try:
+            # Salvar os PARÂMETROS em um arquivo JSON
+            parametros = {
+                'order': best_order,
+                'seasonal_order': best_seasonal_order,
+                'trend': trend,
+                'exog_vars': exog_vars
+            }
+            params_path = os.path.join(modelos_output_dir, f'params_sku_{sku}.json')
+            with open(params_path, 'w') as f:
+                json.dump(parametros, f)
+            
+            # Salvar o MODELO treinado em um arquivo .pkl
+            model_path = os.path.join(modelos_output_dir, f'model_sku_{sku}.pkl')
+            save_pickle(resultado_modelo, model_path)
+            
+            # print(f"SKU {sku}: Modelo e parâmetros salvos com sucesso.")
+            return sku, "Sucesso"
+
+        except Exception as e:
+            print(f"SKU {sku}: Erro ao salvar o modelo ou parâmetros: {e}")
+            return sku, f"Erro ao salvar: {e}"
+    else:
+        print(f"SKU {sku}: Falha ao treinar o modelo.")
+        return sku, "Falha no treinamento"
+
 def pipeline_treinamento_de_modelos(lista_skus, credenciais_path, modelos_output_dir):
     """
-    Executa o pipeline de treinamento, encontra os melhores parâmetros e salva
-    os modelos e os parâmetros para cada SKU.
+    Executa o pipeline de treinamento de forma paralela para acelerar o processo.
     """
     print("--- Iniciando Pipeline de TREINAMENTO de Modelos VMD ---")
     
     # --- Configuração Inicial ---
+    # As credenciais são configuradas uma vez no processo principal.
+    # Processos filhos herdarão o estado (ex: variáveis de ambiente).
     configurar_credenciais_bq(credenciais_path)
     os.makedirs(modelos_output_dir, exist_ok=True)
     print(f"Modelos e parâmetros serão salvos em: {modelos_output_dir}")
@@ -43,55 +102,36 @@ def pipeline_treinamento_de_modelos(lista_skus, credenciais_path, modelos_output
         'Sexta-feira', 'Sábado', 'Domingo'
     ]
 
-    # --- Loop de Treinamento por SKU ---
-    for i, sku in enumerate(lista_skus):
-        print(f"\n--- Treinando Modelo para SKU {i+1}/{len(lista_skus)}: {sku} ---")
+    # --- Execução Paralela do Treinamento ---
+    num_cores = multiprocessing.cpu_count()
+    print(f"Utilizando {num_cores} núcleos para treinar {len(lista_skus)} SKUs em paralelo.")
+
+    resultados = Parallel(n_jobs=num_cores, backend="threading")(
+        delayed(treinar_modelo_sku)(sku, modelos_output_dir, exog_vars) for sku in lista_skus
+    )
+
+    # --- Sumário do Treinamento ---
+    print("\n--- Sumário do Treinamento ---")
+    resultados_validos = [r for r in resultados if r is not None]
+    sucessos = [r for r in resultados_validos if r[1] == "Sucesso"]
+    falhas = [r for r in resultados_validos if r[1] != "Sucesso"]
+    
+    print(f"Total de SKUs para processar: {len(lista_skus)}")
+    print(f"Modelos treinados com sucesso: {len(sucessos)}")
+    print(f"SKUs com falha ou pulados: {len(falhas)}")
+    
+    if falhas:
+        print("\nDetalhamento das falhas:")
+        # Agrupar SKUs por motivo da falha para um relatório mais limpo
+        falhas_agrupadas = {}
+        for sku, motivo in falhas:
+            if motivo not in falhas_agrupadas:
+                falhas_agrupadas[motivo] = []
+            falhas_agrupadas[motivo].append(sku)
         
-        df_venda = Base_venda(sku)
-
-        if df_venda is None or df_venda.empty or len(df_venda) < 60:
-            print(f"Dados insuficientes para o SKU {sku}. Pulando.")
-            continue
-
-        try:
-            best_order, best_seasonal_order, trend = encontrar_melhores_parametros_sarimax(
-                df_venda, sku, exog_vars, verbose=True # Ativar verbose para análise
-            )
-        except Exception as e:
-            print(f"Erro fatal ao encontrar parâmetros para SKU {sku}: {e}")
-            continue
-            
-        resultado_modelo = modelo_sarimax(
-            df_venda, sku, *exog_vars, 
-            order=best_order, 
-            seasonal_order=best_seasonal_order, 
-            trend=trend,
-            verbose=False
-        )
-
-        if resultado_modelo:
-            try:
-                # Salvar os PARÂMETROS em um arquivo JSON
-                parametros = {
-                    'order': best_order,
-                    'seasonal_order': best_seasonal_order,
-                    'trend': trend,
-                    'exog_vars': exog_vars
-                }
-                params_path = os.path.join(modelos_output_dir, f'params_sku_{sku}.json')
-                with open(params_path, 'w') as f:
-                    json.dump(parametros, f)
-                
-                # Salvar o MODELO treinado em um arquivo .pkl
-                model_path = os.path.join(modelos_output_dir, f'model_sku_{sku}.pkl')
-                save_pickle(resultado_modelo, model_path)
-                
-                print(f"Modelo e parâmetros para o SKU {sku} salvos com sucesso.")
-
-            except Exception as e:
-                print(f"Erro ao salvar o modelo ou parâmetros para o SKU {sku}: {e}")
-        else:
-            print(f"Falha ao treinar o modelo para o SKU {sku}.")
+        for motivo, skus_falha in sorted(falhas_agrupadas.items()):
+            print(f"  - Motivo: {motivo}")
+            print(f"    SKUs ({len(skus_falha)}): {skus_falha}")
 
     print("\n--- Pipeline de TREINAMENTO Concluído ---")
 
